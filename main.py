@@ -1,41 +1,26 @@
-from fastapi import FastAPI, HTTPException
-from util.fpl_service import FplService
+from contextlib import asynccontextmanager
+import logging
+from fastapi import APIRouter, FastAPI
+from src.util.fpl_service import FplService
+from src.routers import routers
 
-app = FastAPI()
-service = FplService()
-
-
-@app.get("/events/{event_id}")
-def get_event_by_id(event_id: int):
-    result = service.get_event_by_id(event_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Event not found")
-
-    return result
+logger = logging.getLogger(__name__)
 
 
-@app.get("/elements/{element_id}")
-def get_player_by_id(element_id: int):
-    result = service.get_player_by_id(element_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Player not found")
-
-    return result
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await FplService().get_fpl_api_data()
+    yield
 
 
-@app.get("/players/by/position")
-def get_players_by_position():
-    result = service.get_players_by_position()
-    if not result:
-        raise HTTPException(status_code=500)
-
-    return result
+app = FastAPI(title="Fpl API", lifespan=lifespan)
 
 
-@app.get("/players/top/score")
-def get_players_by_total_points():
-    result = service.get_players_by_position_best_score()
-    if not result:
-        raise HTTPException(status_code=500)
+@app.get("/healthcheck", include_in_schema=False)
+async def healthcheck() -> dict[str, str]:
+    return {"status": "ok"}
 
-    return result
+
+app_router = APIRouter(prefix="/api")
+app_router.include_router(routers)
+app.include_router(app_router)
