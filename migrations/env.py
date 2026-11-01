@@ -4,25 +4,25 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
+from src.db.models import Base
 from src.util.config import DATABASE_URL
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-# The URL comes from .env, never alembic.ini. configparser treats % as the
-# start of an interpolation, so escape any % from a URL-encoded password.
-config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
+# The URL comes from .env, never alembic.ini. Tests set their own URL first.
+# configparser treats % as the start of an interpolation, so escape any % from
+# a URL-encoded password.
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# TARGET_METADATA = mymodel.Base.metadata
-TARGET_METADATA = None
+# The ORM models, so `alembic revision --autogenerate` can diff against them.
+TARGET_METADATA = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

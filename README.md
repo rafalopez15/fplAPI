@@ -42,6 +42,7 @@ alembic upgrade head           # create or update the database schema
 | `FPL_REQUEST_TIMEOUT` | No | Seconds before an FPL request times out (default 10) |
 | `DATABASE_URL` | Yes | Supabase connection string (see below) |
 | `DATABASE_CONNECT_TIMEOUT` | No | Seconds before a database connection attempt times out (default 5) |
+| `TEST_DATABASE_URL` | For tests | Local Postgres used by the test suite (see Tests and linting) |
 
 The app won't start if a required variable is missing.
 
@@ -91,8 +92,22 @@ fastapi dev main.py
 The API runs at `http://127.0.0.1:8000`, with interactive docs at `/docs`. Endpoints are under `/api`, e.g. `/api/elements`. The server reloads when code changes.
 
 ## ✅ Tests and linting
+The database tests run against a local Postgres in Docker, never Supabase. On macOS, [Colima](https://github.com/abiosoft/colima) is a lightweight way to run Docker:
+
+```bash
+brew install colima docker       # one-time install
+colima start                     # start Docker (after each reboot)
+
+# one-time: create the test database container on port 5433
+docker run -d --name fplapi-test-db -e POSTGRES_USER=fpl -e POSTGRES_PASSWORD=fpl \
+  -e POSTGRES_DB=fpl_test -p 5433:5432 postgres:17
+docker start fplapi-test-db      # later sessions: start the existing container
+```
+
+Set `TEST_DATABASE_URL` in `.env` (the value from `.env.example` matches the container above). The tests migrate this database from scratch on every run and roll back each test's changes. They refuse to run against a Supabase URL.
+
 ```bash
 python -m pytest                 # tests with a coverage report; fails under 95%
 pylint $(git ls-files '*.py')    # lint with the settings in .pylintrc
 ```
-The tests don't need a `.env` file, network access or a database. CI runs both on every push.
+Apart from the test database, the tests need no network access, and they use dummy values for the other settings. CI runs both on every push, with its own Postgres container.
