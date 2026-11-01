@@ -85,6 +85,21 @@ To change the schema:
 
 Don't edit a migration that has already been applied: add a new one instead.
 
+## ⏱️ Scheduled jobs (GitHub Actions)
+`src/jobs/sync_bootstrap.py` copies FPL's `bootstrap-static` (teams, positions, players and gameweeks) into the database. GitHub Actions runs it every hour, and each run is recorded in the `sync_runs` table. A failed run leaves the previous data in place.
+
+When a change to `migrations/`, `src/db/` or `alembic.ini` reaches `main`, the **Migrate database** workflow applies it to Supabase with `alembic upgrade head`.
+
+Both workflows need the Supabase connection string as a repository secret:
+1. On GitHub, go to **Settings → Secrets and variables → Actions → New repository secret**.
+2. Name it `DATABASE_URL`, with the same value as `DATABASE_URL` in your `.env`.
+
+Both can also be started by hand from the **Actions** tab (**Run workflow**). To run the sync locally against the database in your `.env`:
+
+```bash
+python -m src.jobs.sync_bootstrap
+```
+
 ## ▶️ Running locally
 ```bash
 fastapi dev main.py

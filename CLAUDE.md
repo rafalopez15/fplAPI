@@ -27,6 +27,7 @@ source env/bin/activate              # venv lives in env/ (not .env, which is co
 pip install -r requirements-dev.txt  # app, test and lint dependencies
 cp .env.example .env                 # first-time setup
 fastapi dev main.py                  # run locally with reload
+python -m src.jobs.sync_bootstrap    # sync bootstrap-static into the database in DATABASE_URL
 python -m pytest                     # tests + coverage report (fails under 95%)
 pylint $(git ls-files '*.py')        # lint, same as CI (config in .pylintrc)
 alembic upgrade head                 # apply database migrations (uses DATABASE_URL)
@@ -50,10 +51,12 @@ src/
   models/                Pydantic response models (ElementResponse, EventResponse)
   db/
     models.py            SQLAlchemy ORM tables; Alembic autogenerates migrations from them
+  jobs/
+    sync_bootstrap.py    Hourly job: upserts bootstrap-static into Postgres, records sync_runs
   util/
     config.py            Reads .env (python-dotenv) into module-level constants
     database.py          SQLAlchemy engine and is_database_reachable()
-    fpl_service.py       FplService singleton: fetches and caches FPL data
+    fpl_service.py       fetch_bootstrap_static(), and the FplService singleton that caches it
 tests/                   pytest suite, one file per layer (test_db.py: schema and migrations)
 ```
 
@@ -63,6 +66,7 @@ tests/                   pytest suite, one file per layer (test_db.py: schema an
 - **Services** are plain functions. They read collections through `FplService().get_data(...)` and return raw dicts, Pydantic models, or `None`/`[]` when nothing matches.
 - **`FplService`** is a process-wide singleton. `get_fpl_api_data()` fetches all of bootstrap-static once and stores it in `fpl_data`. Every read is served from that cache.
 - **Data refresh:** the lifespan hook fetches once at startup, and `/events/current-event/` refreshes before answering. No other endpoint triggers a fetch.
+- **Database sync:** separately, `src/jobs/sync_bootstrap.py` upserts bootstrap-static into Postgres every hour. The API doesn't read those tables yet; FPL-24 switches it over and removes the cache.
 
 ## Design decisions
 
@@ -120,6 +124,10 @@ Use these status codes consistently:
 
 - Python **3.10+**. 3.9 is end-of-life, and GitHub's Ubuntu 26.04 runners don't provide it.
 - CI runs two workflows on every push, both on Python 3.13: `.github/workflows/pylint.yml` lints, and `.github/workflows/tests.yml` runs pytest with the 95% coverage gate against a Postgres 17 service container. Each writes a summary table to the run page: test pass rate and failures via `.github/scripts/summarize_tests.py`, and pylint score and issues via `.github/scripts/summarize_pylint.py`.
+- Two more workflows use the Supabase database through the `DATABASE_URL` repository secret, and share the `database` concurrency group so they never overlap:
+  - `sync-bootstrap.yml` runs the bootstrap sync hourly (cron `17 * * * *`) and on manual dispatch.
+  - `migrate.yml` runs `alembic upgrade head` on pushes to `main` that touch `migrations/`, `src/db/` or `alembic.ini`, and on manual dispatch. Migrations reach Supabase this way, not from a laptop.
+  - Both copy `.env.example` to `.env` for the FPL URLs; the secret's `DATABASE_URL` takes precedence. Scheduled workflows only run from `main`.
 - `.pylintrc` turns off docstring checks and `too-few-public-methods`, and ignores `alembic.context` and `alembic.op` for member checks because they're populated at runtime. Migration files disable `invalid-name` on their first line, because Alembic requires names like `revision` and file names start with the revision id (the template in `migrations/script.py.mako` adds it). Test files disable `redefined-outer-name` (pytest fixtures) at the top of the file. Fix any other warnings rather than silencing them.
 - Runtime dependencies are pinned in `requirements.txt`; test and lint tools in `requirements-dev.txt`, which includes it.
 
