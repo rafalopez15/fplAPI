@@ -8,7 +8,13 @@ os.environ.setdefault("FPL_BASE_URL", "https://fantasy.premierleague.com/api")
 os.environ.setdefault("FPL_BOOTSTRAP_STATIC_PATH", "/bootstrap-static/")
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://test:test@localhost:5432/test")
 
+from pathlib import Path  # pylint: disable=wrong-import-position
+
 import pytest  # pylint: disable=wrong-import-position
+from alembic import command  # pylint: disable=wrong-import-position
+from alembic.config import Config  # pylint: disable=wrong-import-position
+from sqlalchemy import create_engine  # pylint: disable=wrong-import-position
+from sqlalchemy.orm import Session  # pylint: disable=wrong-import-position
 from src.util import database  # pylint: disable=wrong-import-position
 from src.util.fpl_service import FplService  # pylint: disable=wrong-import-position
 
@@ -134,3 +140,53 @@ def block_database(monkeypatch):
         raise AssertionError(f"Unexpected database connection: {args} {kwargs}")
 
     monkeypatch.setattr(database.engine, "connect", _blocked)
+
+
+# --- test database ---------------------------------------------------------
+
+def alembic_config(url: str) -> Config:
+    """Alembic config for the test database.
+
+    Built without alembic.ini so env.py skips fileConfig, which would disable the
+    app's loggers for the rest of the run.
+    """
+    config = Config()
+    config.set_main_option(
+        "script_location", str(Path(__file__).parents[1] / "migrations")
+    )
+    config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
+    return config
+
+
+@pytest.fixture(scope="session")
+def test_database_url():
+    url = os.environ.get("TEST_DATABASE_URL")
+    if not url:
+        pytest.fail(
+            "TEST_DATABASE_URL isn't set. Start the test database first; see "
+            "'Tests and linting' in the README."
+        )
+    if "supabase" in url:
+        pytest.fail("TEST_DATABASE_URL points at Supabase. Tests must use a local database.")
+    return url
+
+
+@pytest.fixture(scope="session")
+def db_engine(test_database_url):
+    """An engine for the test database, migrated from scratch once per run."""
+    config = alembic_config(test_database_url)
+    command.downgrade(config, "base")
+    command.upgrade(config, "head")
+    engine = create_engine(test_database_url)
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture
+def db_session(db_engine):
+    """A session whose changes are rolled back after the test, even after commit()."""
+    with db_engine.connect() as connection:
+        transaction = connection.begin()
+        with Session(bind=connection, join_transaction_mode="create_savepoint") as session:
+            yield session
+        transaction.rollback()

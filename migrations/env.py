@@ -9,9 +9,11 @@ from src.util.config import DATABASE_URL
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-# The URL comes from .env, never alembic.ini. configparser treats % as the
-# start of an interpolation, so escape any % from a URL-encoded password.
-config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
+# The URL comes from .env, never alembic.ini. Tests set their own URL first.
+# configparser treats % as the start of an interpolation, so escape any % from
+# a URL-encoded password.
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
