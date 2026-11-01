@@ -7,11 +7,7 @@ events_router = APIRouter()
 
 @events_router.get("/events")
 async def get_events():
-    result = events.get_events()
-    if not result:
-        raise HTTPException(status_code=400, detail="Not able to retrieve events")
-
-    return result
+    return events.get_events()
 
 
 @events_router.get("/events/{event_id}")

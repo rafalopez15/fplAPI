@@ -2,7 +2,7 @@ from src.util.fpl_service import FplService
 
 
 def get_teams():
-    teams = FplService().fpl_data.get("teams")
+    teams = FplService().get_data("teams")
     return teams
 
 

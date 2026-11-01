@@ -6,7 +6,7 @@ fpl_service = FplService()
 
 
 def get_elements() -> List[any]:
-    elements = fpl_service.fpl_data.get("elements")
+    elements = fpl_service.get_data("elements")
     return elements
 
 
@@ -29,5 +29,5 @@ def get_elements_by_type(element_type: int) -> List[ElementResponse]:
 
 
 def get_element_types():
-    element_types = fpl_service.fpl_data.get("element_types")
+    element_types = fpl_service.get_data("element_types")
     return element_types

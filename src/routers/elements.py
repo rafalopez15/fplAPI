@@ -8,11 +8,7 @@ elements_router = APIRouter()
 
 @elements_router.get("/elements")
 async def get_elements():
-    result = elements.get_elements()
-    if not result:
-        raise HTTPException(status_code=400, detail="Not able to retrieve elements")
-
-    return result
+    return elements.get_elements()
 
 
 @elements_router.get("/elements/{element_id}")
