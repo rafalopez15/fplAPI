@@ -7,8 +7,8 @@ elements_router = APIRouter()
 
 
 @elements_router.get("/elements")
-async def get_elements():
-    """List every player with all the fields FPL provides."""
+async def get_elements() -> List[ElementResponse]:
+    """List every player."""
     return elements.get_elements()
 
 
