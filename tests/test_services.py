@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 import requests
+from pydantic import ValidationError
 from src.models.element import ElementResponse
 from src.models.event import EventResponse
 from src.services import elements, events, teams
@@ -25,6 +26,16 @@ def test_get_element_by_id_found():
 
 def test_get_element_by_id_not_found():
     assert elements.get_element_by_id(999) is None
+
+
+@pytest.mark.parametrize(
+    "field", ["id", "web_name", "team", "element_type", "now_cost", "status"]
+)
+def test_element_missing_required_field_raises(fpl_data, field):
+    element = fpl_data["elements"][0]
+    del element[field]
+    with pytest.raises(ValidationError):
+        ElementResponse(**element)
 
 
 def test_get_elements_by_type():

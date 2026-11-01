@@ -51,6 +51,13 @@ def test_element_nullable_fields(client, loaded_service):
     assert element["ep_next"] is None
 
 
+def test_element_missing_optional_field_is_null(client, loaded_service):
+    del loaded_service.fpl_data["elements"][0]["minutes"]
+    response = client.get("/api/elements/1")
+    assert response.status_code == 200
+    assert response.json()["minutes"] is None
+
+
 def test_get_elements_empty(client, loaded_service):
     loaded_service.fpl_data["elements"] = []
     response = client.get("/api/elements")
