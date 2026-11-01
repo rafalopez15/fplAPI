@@ -1,0 +1,100 @@
+# fplAPI
+
+FastAPI service that wraps the official Fantasy Premier League (FPL) API and exposes a cleaner REST interface. Its main consumer will be an iOS app.
+
+## Working guidelines
+
+Adapted from [andrej-karpathy-skills/CLAUDE.md](https://github.com/multica-ai/andrej-karpathy-skills/blob/main/CLAUDE.md). They favor caution over speed; use judgment on trivial tasks.
+
+1. **Think before coding.** State assumptions. If a request can be read more than one way, lay out the options instead of picking one silently. Ask when something is unclear, and raise tradeoffs early.
+2. **Simplicity first.** Write the smallest change that solves the stated problem. No speculative features, extra abstractions, or configuration nobody asked for.
+3. **Surgical changes.** Touch only what the task requires. Leave unrelated code, comments and formatting alone. Clean up only what your own change orphaned; point out other problems instead of fixing them unasked.
+4. **Goal-driven execution.** Turn each task into something you can verify, such as a test that fails before the fix and passes after. For multi-step work, give a short plan with a check for each step.
+
+## Git conventions
+
+- **No AI attribution.** Never add `Co-Authored-By: Claude`, "Generated with Claude Code", or any other Claude/AI attribution to commit messages or PR descriptions.
+- Group changes into logical commits, each leaving the app working: for example config, fixes, tests and tooling as separate commits.
+- Commit messages: a short imperative subject line, then a body explaining what changed and why.
+- Commit or push only when asked.
+
+## Commands
+
+```bash
+source env/bin/activate              # venv lives in env/ (not .env, which is config)
+pip install -r requirements-dev.txt  # app + test dependencies
+cp .env.example .env                 # first-time setup
+fastapi dev main.py                  # run locally with reload
+python -m pytest                     # tests + coverage report (fails under 95%)
+```
+
+## Architecture
+
+```
+main.py                  App setup: lifespan (initial data fetch), exception handlers, /healthcheck
+src/
+  routers/               HTTP layer: one APIRouter per resource, mounted under /api
+    __init__.py          Combines the resource routers into a single `routers`
+    elements.py          /elements, /elements/{id}, /elements/position/{element_type}
+    events.py            /events, /events/{id}, /events/current-event/
+    teams.py             /teams, /teams/{team_name}
+  services/              Business logic: filters and lookups over the cached FPL data
+  models/                Pydantic response models (ElementResponse, EventResponse)
+  util/
+    config.py            Reads .env (python-dotenv) into module-level constants
+    fpl_service.py       FplService singleton: fetches and caches FPL data
+tests/                   pytest suite, one file per layer
+```
+
+**Request flow:** router → service → `FplService().get_data(key)` → cached data from FPL's `bootstrap-static` endpoint.
+
+- **Routers** handle HTTP concerns only: path parameters, status codes, `HTTPException`. They call services and never touch `FplService` directly.
+- **Services** are plain functions. They read collections through `FplService().get_data(...)` and return raw dicts, Pydantic models, or `None`/`[]` when nothing matches.
+- **`FplService`** is a process-wide singleton. `get_fpl_api_data()` fetches all of bootstrap-static once and stores it in `fpl_data`. Every read is served from that cache.
+- **Data refresh:** the lifespan hook fetches once at startup, and `/events/current-event/` refreshes before answering. No other endpoint triggers a fetch.
+
+## Design decisions
+
+### Configuration
+- All URLs and tunables live in `.env`, are read in `src/util/config.py`, and are imported as constants. Never hardcode URLs.
+- Required variables (`FPL_BASE_URL`, `FPL_BOOTSTRAP_STATIC_PATH`) go through `_get_env()`, which raises at import time if one is missing so the app fails fast. Optional ones, like `FPL_REQUEST_TIMEOUT` (default 10s), use `os.getenv` with a default.
+- Endpoint URLs are built as base URL + path. To add an endpoint, add an `FPL_..._PATH` variable to `.env` and `.env.example`, then a constant in `config.py`.
+- `.env` is gitignored; `.env.example` is committed and must stay in sync with it.
+
+### Fetching
+- `requests` is blocking, so it runs in `asyncio.to_thread` with a timeout to keep the event loop free.
+- `raise_for_status()` turns error responses into exceptions, and every `requests.exceptions.RequestException` is caught and logged. A failed fetch never raises and never crashes the app; any cached data is kept.
+
+### Error responses
+Use these status codes consistently:
+
+| Situation | Status |
+|---|---|
+| FPL data never loaded (`FplDataUnavailableError`) | **503** `"FPL data is currently unavailable"`, raised by the global handler in `main.py` |
+| Single-item lookup or filter finds nothing | **404** with a resource-specific detail, e.g. `"Team not found"` |
+| Collection endpoint with no items | **200** with `[]` |
+| Invalid path parameter type | **422** (FastAPI default) |
+
+### Logging
+- Use `logging.getLogger(__name__)` with `%s` placeholders, e.g. `logger.info("msg: %s", value)`. Never pass extra arguments without a placeholder: pytest's log capture raises on that.
+
+## Testing
+
+- pytest with pytest-cov. `pytest.ini` enforces **≥95% coverage** on `src` and `main`, currently at 100%.
+- `tests/conftest.py`:
+  - Sets the required env vars before importing `src`, so tests don't need a `.env` file (e.g. in CI).
+  - `loaded_service` preloads the `FplService` singleton with sample data built by `make_element()` and `make_event()`, and resets it afterwards.
+  - The autouse fixture `block_network` makes any real `requests.get` call fail the test. Mock it with `monkeypatch` when a test needs a response.
+- Async code is tested with `asyncio.run(...)`, so pytest-asyncio isn't needed. Routes are tested with `fastapi.testclient.TestClient`. Use it as a context manager only when the lifespan (startup fetch) should run.
+- `config.py` import-time behavior is tested by running it as a fresh module (`load_fresh_config`), so the real module stays untouched.
+- Every new code path needs tests, including its error paths.
+
+## Environment
+
+- Python **3.9+**: the code uses `asyncio.to_thread` and builtin generic type hints. CI runs pylint on 3.9 and 3.10.
+- Runtime dependencies are pinned in `requirements.txt`; test tools in `requirements-dev.txt`, which includes it.
+
+## Known gaps
+
+- If the startup fetch fails, only `/events/current-event/` retries. Other endpoints keep returning 503 until it's called or the app restarts.
+- The pylint CI job checks all files, and existing code has no docstrings, so it may fail.
