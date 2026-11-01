@@ -4,6 +4,7 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
+from src.db.models import Base
 from src.util.config import DATABASE_URL
 
 # this is the Alembic Config object, which provides
@@ -20,11 +21,8 @@ if not config.get_main_option("sqlalchemy.url"):
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# TARGET_METADATA = mymodel.Base.metadata
-TARGET_METADATA = None
+# The ORM models, so `alembic revision --autogenerate` can diff against them.
+TARGET_METADATA = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

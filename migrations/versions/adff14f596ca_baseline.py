@@ -1,3 +1,5 @@
+# Alembic requires names like revision, and file names start with the revision id.
+# pylint: disable=invalid-name
 """baseline
 
 Revision ID: adff14f596ca
@@ -8,8 +10,7 @@ Create Date: 2026-11-01 10:41:59.418143
 from typing import Sequence, Union
 
 
-# revision identifiers, used by Alembic. Alembic reads these exact names.
-# pylint: disable=invalid-name
+# revision identifiers, used by Alembic.
 revision: str = 'adff14f596ca'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
