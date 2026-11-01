@@ -1,0 +1,39 @@
+name: Migrate database
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "migrations/**"
+      - "src/db/**"
+      - "alembic.ini"
+  workflow_dispatch:
+
+# Shared with the sync workflow, so a sync never runs mid-migration.
+concurrency:
+  group: database
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.13"
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    - name: Configure
+      # Same as the sync workflow: FPL URLs from .env.example, DATABASE_URL from the secret.
+      run: cp .env.example .env
+    - name: Apply migrations
+      run: |
+        alembic upgrade head
+        alembic current
