@@ -101,6 +101,9 @@ class Element(Base):
     news_added: Mapped[Optional[datetime]]
     chance_of_playing_next_round: Mapped[Optional[int]]
     chance_of_playing_this_round: Mapped[Optional[int]]
+    can_select: Mapped[Optional[bool]]
+    can_transact: Mapped[Optional[bool]]
+    removed: Mapped[Optional[bool]]
 
     # Price changes and transfers
     cost_change_event: Mapped[Optional[int]]

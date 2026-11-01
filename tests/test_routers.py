@@ -51,6 +51,19 @@ def test_element_nullable_fields(client, loaded_service):
     assert element["ep_next"] is None
 
 
+def test_element_selection_flags(client, loaded_service):
+    loaded_service.fpl_data["elements"][0].update(can_select=False, status="u")
+    element = client.get("/api/elements/1").json()
+    assert element["can_select"] is False
+    assert element["can_transact"] is True
+    assert element["removed"] is False
+
+
+def test_unselectable_players_are_not_filtered_out(client, loaded_service):
+    loaded_service.fpl_data["elements"][0]["can_select"] = False
+    assert len(client.get("/api/elements").json()) == 3
+
+
 def test_element_missing_optional_field_is_null(client, loaded_service):
     del loaded_service.fpl_data["elements"][0]["minutes"]
     response = client.get("/api/elements/1")
