@@ -27,12 +27,16 @@ cp .env.example .env                 # first-time setup
 fastapi dev main.py                  # run locally with reload
 python -m pytest                     # tests + coverage report (fails under 95%)
 pylint $(git ls-files '*.py')        # lint, same as CI (config in .pylintrc)
+alembic upgrade head                 # apply database migrations (uses DATABASE_URL)
+alembic revision -m "describe change" # new migration in migrations/versions/
 ```
 
 ## Architecture
 
 ```
 main.py                  App setup: lifespan (initial data fetch), exception handlers, /healthcheck
+alembic.ini              Alembic settings; the database URL is set in migrations/env.py
+migrations/              Alembic environment and versions/ (one file per migration)
 src/
   routers/               HTTP layer: one APIRouter per resource, mounted under /api
     __init__.py          Combines the resource routers into a single `routers`
@@ -64,9 +68,10 @@ tests/                   pytest suite, one file per layer
 - `.env` is gitignored; `.env.example` is committed and must stay in sync with it.
 
 ### Database
-- Postgres on Supabase, accessed with SQLAlchemy (sync engine, psycopg 3 driver).
+- Postgres on Supabase, accessed with SQLAlchemy (sync engine, psycopg 3 driver) and migrated with Alembic.
 - `DATABASE_URL` (required) is the Supabase **session pooler** URI with the scheme changed to `postgresql+psycopg://` and `?sslmode=require` added. The session pooler works over IPv4 and supports prepared statements; the direct connection is IPv6-only. `DATABASE_CONNECT_TIMEOUT` (default 5s) is optional.
 - Never print or log `DATABASE_URL`: it contains the password.
+- `migrations/env.py` reads the URL from `config.py`, never from `alembic.ini`, and escapes `%` for configparser.
 - SQLAlchemy calls are blocking, so run them in `asyncio.to_thread` from async code, like FPL fetches.
 - `/healthcheck` returns `{"status": "ok", "database": "ok" | "unavailable"}`, always with 200, so a database outage doesn't make a host restart the app.
 
@@ -103,7 +108,7 @@ Use these status codes consistently:
 
 - Python **3.10+**. 3.9 is end-of-life, and GitHub's Ubuntu 26.04 runners don't provide it.
 - CI runs two workflows on every push, both on Python 3.13: `.github/workflows/pylint.yml` lints, and `.github/workflows/tests.yml` runs pytest with the 95% coverage gate. Each writes a summary table to the run page: test pass rate and failures via `.github/scripts/summarize_tests.py`, and pylint score and issues via `.github/scripts/summarize_pylint.py`.
-- `.pylintrc` turns off docstring checks and `too-few-public-methods`. Test files disable `redefined-outer-name` (pytest fixtures) at the top of the file. Fix any other warnings rather than silencing them.
+- `.pylintrc` turns off docstring checks and `too-few-public-methods`, and ignores `alembic.context` for member checks because it's populated at runtime. Migration files disable `invalid-name` because Alembic requires names like `revision` (the template in `migrations/script.py.mako` adds it). Test files disable `redefined-outer-name` (pytest fixtures) at the top of the file. Fix any other warnings rather than silencing them.
 - Runtime dependencies are pinned in `requirements.txt`; test and lint tools in `requirements-dev.txt`, which includes it.
 
 ## Known gaps
