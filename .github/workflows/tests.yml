@@ -5,6 +5,23 @@ on: [push]
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      # A throwaway database for the tests. Never point tests at Supabase.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: fpl
+          POSTGRES_PASSWORD: fpl
+          POSTGRES_DB: fpl_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fpl -d fpl_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://fpl:fpl@localhost:5432/fpl_test
     steps:
     - uses: actions/checkout@v5
     - name: Set up Python 3.13
