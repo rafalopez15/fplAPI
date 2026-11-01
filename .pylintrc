@@ -1,0 +1,8 @@
+[MESSAGES CONTROL]
+# Docstrings aren't required in this project, and Pydantic models
+# naturally have no public methods.
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    too-few-public-methods,

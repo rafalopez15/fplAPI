@@ -1,3 +1,5 @@
+# pytest fixtures are injected as same-named arguments.
+# pylint: disable=redefined-outer-name
 import asyncio
 import logging
 import threading
@@ -79,7 +81,7 @@ def test_fetch_success_stores_data(monkeypatch, service, caplog):
 def test_fetch_runs_off_the_event_loop_thread(monkeypatch, service):
     calling_threads = []
 
-    def fake_get(*args, **kwargs):
+    def fake_get(*_args, **_kwargs):
         calling_threads.append(threading.current_thread())
         return ok_response({})
 

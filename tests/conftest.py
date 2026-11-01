@@ -1,3 +1,5 @@
+# pytest fixtures are injected as same-named arguments.
+# pylint: disable=redefined-outer-name
 import os
 
 # Config is read at import time, so make sure it exists before importing src.

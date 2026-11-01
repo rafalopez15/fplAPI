@@ -7,10 +7,10 @@ def get_events():
     return events
 
 
-def get_event_by_id(id: int):
+def get_event_by_id(event_id: int):
     events = get_events()
     for event in events:
-        if event.get("id") == id:
+        if event.get("id") == event_id:
             return event
 
     return None

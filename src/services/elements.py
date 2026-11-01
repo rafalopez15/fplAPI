@@ -10,10 +10,10 @@ def get_elements() -> List[any]:
     return elements
 
 
-def get_element_by_id(id: int) -> ElementResponse:
+def get_element_by_id(element_id: int) -> ElementResponse:
     elements = get_elements()
     for element in elements:
-        if element.get("id") == id:
+        if element.get("id") == element_id:
             return ElementResponse(**element)
 
     return None

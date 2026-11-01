@@ -34,7 +34,7 @@ def test_get_elements_by_type():
 
 
 def test_get_elements_by_type_no_match():
-    assert elements.get_elements_by_type(1) == []
+    assert not elements.get_elements_by_type(1)
 
 
 def test_get_element_types(fpl_data):

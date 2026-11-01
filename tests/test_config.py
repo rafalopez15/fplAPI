@@ -1,3 +1,5 @@
+# _get_env is private but tested directly.
+# pylint: disable=protected-access
 import importlib.util
 from unittest.mock import Mock
 

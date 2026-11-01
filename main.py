@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     await FplService().get_fpl_api_data()
     yield
 
@@ -19,7 +19,7 @@ app = FastAPI(title="Fpl API", lifespan=lifespan)
 
 @app.exception_handler(FplDataUnavailableError)
 async def fpl_data_unavailable_handler(
-    request: Request, exc: FplDataUnavailableError
+    _request: Request, _exc: FplDataUnavailableError
 ) -> JSONResponse:
     return JSONResponse(
         status_code=503, content={"detail": "FPL data is currently unavailable"}

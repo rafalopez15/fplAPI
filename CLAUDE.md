@@ -26,6 +26,7 @@ pip install -r requirements-dev.txt  # app + test dependencies
 cp .env.example .env                 # first-time setup
 fastapi dev main.py                  # run locally with reload
 python -m pytest                     # tests + coverage report (fails under 95%)
+pylint $(git ls-files '*.py')        # lint, same as CI (config in .pylintrc)
 ```
 
 ## Architecture
@@ -91,10 +92,11 @@ Use these status codes consistently:
 
 ## Environment
 
-- Python **3.9+**: the code uses `asyncio.to_thread` and builtin generic type hints. CI runs pylint on 3.9 and 3.10.
+- Python **3.10+**. 3.9 is end-of-life, and GitHub's Ubuntu 26.04 runners don't provide it.
+- CI (`.github/workflows/pylint.yml`) runs pylint and the test suite on Python 3.10–3.13 for every push.
+- `.pylintrc` turns off docstring checks and `too-few-public-methods`. Test files disable `redefined-outer-name` (pytest fixtures) at the top of the file. Fix any other warnings rather than silencing them.
 - Runtime dependencies are pinned in `requirements.txt`; test tools in `requirements-dev.txt`, which includes it.
 
 ## Known gaps
 
 - If the startup fetch fails, only `/events/current-event/` retries. Other endpoints keep returning 503 until it's called or the app restarts.
-- The pylint CI job checks all files, and existing code has no docstrings, so it may fail.
