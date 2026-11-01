@@ -13,7 +13,7 @@ fplAPI provides a convenient and Pythonic interface to access FPL data from the 
 - Easy to extend: integrate into dashboards, automated pipelines, or data science workflows  
 
 ## 🧰 Tech Stack  
-- **Python 3.x**  
+- **Python 3.9+**  
 - HTTP client: `requests` (or `httpx`)  
 - Data modeling: `dataclasses` or `pydantic`  
 - (Optional) Caching layer: `functools.lru_cache` or `cachetools`  
