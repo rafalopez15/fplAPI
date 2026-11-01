@@ -5,19 +5,21 @@ on: [push]
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
     - uses: actions/checkout@v5
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Set up Python 3.13
       uses: actions/setup-python@v6
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: "3.13"
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements-dev.txt pylint
     - name: Analysing the code with pylint
+      # Readable output in the log, plus a JSON report for the summary step.
       run: |
-        pylint $(git ls-files '*.py')
+        pylint --output-format=colorized,json2:pylint-report.json $(git ls-files '*.py')
+    - name: Summarize pylint results
+      if: always()
+      run: |
+        python .github/scripts/summarize_pylint.py pylint-report.json

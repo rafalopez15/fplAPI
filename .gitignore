@@ -5,3 +5,5 @@ env
 .coverage
 .pytest_cache/
 __pycache__/
+test-results.xml
+pylint-report.json

@@ -93,7 +93,7 @@ Use these status codes consistently:
 ## Environment
 
 - Python **3.10+**. 3.9 is end-of-life, and GitHub's Ubuntu 26.04 runners don't provide it.
-- CI runs two workflows on every push, each on Python 3.10–3.13: `.github/workflows/pylint.yml` (lint) and `.github/workflows/tests.yml` (pytest with the 95% coverage gate).
+- CI runs two workflows on every push, both on Python 3.13: `.github/workflows/pylint.yml` lints, and `.github/workflows/tests.yml` runs pytest with the 95% coverage gate. Each writes a summary table to the run page: test pass rate and failures via `.github/scripts/summarize_tests.py`, and pylint score and issues via `.github/scripts/summarize_pylint.py`.
 - `.pylintrc` turns off docstring checks and `too-few-public-methods`. Test files disable `redefined-outer-name` (pytest fixtures) at the top of the file. Fix any other warnings rather than silencing them.
 - Runtime dependencies are pinned in `requirements.txt`; test tools in `requirements-dev.txt`, which includes it.
 
