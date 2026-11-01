@@ -1,5 +1,6 @@
 import logging
 import requests
+from src.util.config import FPL_BOOTSTRAP_STATIC_URL
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +16,7 @@ class FplService:
 
     async def get_fpl_api_data(self):
         try:
-            response = requests.get(
-                "https://fantasy.premierleague.com/api/bootstrap-static/"
-            )
+            response = requests.get(FPL_BOOTSTRAP_STATIC_URL)
             if response.ok:
                 self.fpl_data = response.json()
                 logger.info("FPL data response: ", response.status_code)
