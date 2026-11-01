@@ -19,3 +19,5 @@ def _get_env(key: str) -> str:
 FPL_BASE_URL = _get_env("FPL_BASE_URL").rstrip("/")
 FPL_BOOTSTRAP_STATIC_URL = FPL_BASE_URL + _get_env("FPL_BOOTSTRAP_STATIC_PATH")
 FPL_REQUEST_TIMEOUT = float(os.getenv("FPL_REQUEST_TIMEOUT", "10"))
+DATABASE_URL = _get_env("DATABASE_URL")
+DATABASE_CONNECT_TIMEOUT = int(os.getenv("DATABASE_CONNECT_TIMEOUT", "5"))
