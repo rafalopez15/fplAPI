@@ -8,5 +8,6 @@ disable=
     too-few-public-methods,
 
 [TYPECHECK]
-# alembic.context is populated at runtime, so pylint can't see its functions.
-ignored-modules=alembic.context
+# alembic.context and alembic.op are populated at runtime, so pylint can't see
+# their functions.
+ignored-modules=alembic.context,alembic.op
