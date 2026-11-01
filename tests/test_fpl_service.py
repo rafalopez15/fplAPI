@@ -64,6 +64,22 @@ def test_get_data_raises_when_not_loaded(service):
         service.get_data("teams")
 
 
+# --- fetch_bootstrap_static -----------------------------------------------
+
+def test_fetch_bootstrap_static_returns_data(monkeypatch):
+    get = mock_get(monkeypatch, ok_response({"teams": []}))
+
+    assert fpl_service_module.fetch_bootstrap_static() == {"teams": []}
+    get.assert_called_once_with(FPL_BOOTSTRAP_STATIC_URL, timeout=FPL_REQUEST_TIMEOUT)
+
+
+def test_fetch_bootstrap_static_raises_on_error_status(monkeypatch):
+    mock_get(monkeypatch, error_response(503, "Service Unavailable"))
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        fpl_service_module.fetch_bootstrap_static()
+
+
 # --- get_fpl_api_data -----------------------------------------------------
 
 def test_fetch_success_stores_data(monkeypatch, service, caplog):
