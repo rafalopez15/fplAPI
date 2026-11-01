@@ -10,6 +10,11 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    """Load FPL data once at startup.
+
+    If the fetch fails, the app still starts. Data endpoints return 503 until
+    /events/current-event/ refreshes the data or the app restarts.
+    """
     await FplService().get_fpl_api_data()
     yield
 
@@ -21,6 +26,7 @@ app = FastAPI(title="Fpl API", lifespan=lifespan)
 async def fpl_data_unavailable_handler(
     _request: Request, _exc: FplDataUnavailableError
 ) -> JSONResponse:
+    """Return 503 when FPL data hasn't loaded, so callers can tell it apart from a 404."""
     return JSONResponse(
         status_code=503, content={"detail": "FPL data is currently unavailable"}
     )
@@ -28,6 +34,7 @@ async def fpl_data_unavailable_handler(
 
 @app.get("/healthcheck", include_in_schema=False)
 async def healthcheck() -> dict[str, str]:
+    """Report that the process is up. This doesn't check whether FPL data is loaded."""
     return {"status": "ok"}
 
 

@@ -5,6 +5,11 @@ load_dotenv()
 
 
 def _get_env(key: str) -> str:
+    """Return a required environment variable.
+
+    Raises RuntimeError if it's unset or empty, so a missing .env entry stops the
+    app at import time instead of turning into a broken URL later.
+    """
     value = os.getenv(key)
     if not value:
         raise RuntimeError(f"Missing required environment variable: {key}")
