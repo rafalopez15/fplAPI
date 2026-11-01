@@ -17,6 +17,8 @@ Adapted from [andrej-karpathy-skills/CLAUDE.md](https://github.com/multica-ai/an
 - Group changes into logical commits, each leaving the app working: for example config, fixes, tests and tooling as separate commits.
 - Commit messages: a short imperative subject line, then a body explaining what changed and why.
 - Commit or push only when asked.
+- **Branches:** one short-lived branch per Linear story, created from an up-to-date `main` and named with the issue id (e.g. `fpl-8-sync-bootstrap`) so Linear links it. There's no `dev` branch. Once a branch's PR is merged, don't commit to it again: start the next story on a new branch.
+- **Merging:** PRs merge into `main` with a merge commit, not squash or rebase, so the logical commits above survive on `main`.
 
 ## Commands
 
