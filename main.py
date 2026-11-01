@@ -1,7 +1,9 @@
+import asyncio
 from contextlib import asynccontextmanager
 import logging
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
+from src.util import database
 from src.util.fpl_service import FplDataUnavailableError, FplService
 from src.routers import routers
 
@@ -34,8 +36,13 @@ async def fpl_data_unavailable_handler(
 
 @app.get("/healthcheck", include_in_schema=False)
 async def healthcheck() -> dict[str, str]:
-    """Report that the process is up. This doesn't check whether FPL data is loaded."""
-    return {"status": "ok"}
+    """Report that the process is up and whether the database is reachable.
+
+    Always 200, so a database outage doesn't make a host restart the app. This
+    doesn't check whether FPL data is loaded.
+    """
+    reachable = await asyncio.to_thread(database.is_database_reachable)
+    return {"status": "ok", "database": "ok" if reachable else "unavailable"}
 
 
 app_router = APIRouter(prefix="/api")

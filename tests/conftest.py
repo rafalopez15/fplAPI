@@ -6,8 +6,10 @@ import os
 # This keeps the suite independent of a local .env file (e.g. in CI).
 os.environ.setdefault("FPL_BASE_URL", "https://fantasy.premierleague.com/api")
 os.environ.setdefault("FPL_BOOTSTRAP_STATIC_PATH", "/bootstrap-static/")
+os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://test:test@localhost:5432/test")
 
 import pytest  # pylint: disable=wrong-import-position
+from src.util import database  # pylint: disable=wrong-import-position
 from src.util.fpl_service import FplService  # pylint: disable=wrong-import-position
 
 
@@ -122,3 +124,13 @@ def block_network(monkeypatch):
         raise AssertionError(f"Unexpected network call: {args} {kwargs}")
 
     monkeypatch.setattr("src.util.fpl_service.requests.get", _blocked)
+
+
+@pytest.fixture(autouse=True)
+def block_database(monkeypatch):
+    """Fail loudly if any test opens a real database connection."""
+
+    def _blocked(*args, **kwargs):
+        raise AssertionError(f"Unexpected database connection: {args} {kwargs}")
+
+    monkeypatch.setattr(database.engine, "connect", _blocked)

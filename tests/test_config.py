@@ -49,10 +49,13 @@ def test_strips_trailing_slash_from_base_url(monkeypatch):
     assert module.FPL_BOOTSTRAP_STATIC_URL == "https://example.com/api/bootstrap-static/"
 
 
-@pytest.mark.parametrize("missing", ["FPL_BASE_URL", "FPL_BOOTSTRAP_STATIC_PATH"])
+@pytest.mark.parametrize(
+    "missing", ["FPL_BASE_URL", "FPL_BOOTSTRAP_STATIC_PATH", "DATABASE_URL"]
+)
 def test_import_fails_when_variable_missing(monkeypatch, missing):
     monkeypatch.setenv("FPL_BASE_URL", "https://example.com/api")
     monkeypatch.setenv("FPL_BOOTSTRAP_STATIC_PATH", "/bootstrap-static/")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost/db")
     monkeypatch.delenv(missing)
     with pytest.raises(RuntimeError, match=missing):
         load_fresh_config(monkeypatch)
@@ -72,3 +75,19 @@ def test_request_timeout_from_env(monkeypatch):
 def test_request_timeout_defaults_to_10(monkeypatch):
     monkeypatch.delenv("FPL_REQUEST_TIMEOUT", raising=False)
     assert load_fresh_config(monkeypatch).FPL_REQUEST_TIMEOUT == 10.0
+
+
+def test_database_url_from_env(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@db.example.com/db")
+    module = load_fresh_config(monkeypatch)
+    assert module.DATABASE_URL == "postgresql+psycopg://u:p@db.example.com/db"
+
+
+def test_database_connect_timeout_from_env(monkeypatch):
+    monkeypatch.setenv("DATABASE_CONNECT_TIMEOUT", "2")
+    assert load_fresh_config(monkeypatch).DATABASE_CONNECT_TIMEOUT == 2
+
+
+def test_database_connect_timeout_defaults_to_5(monkeypatch):
+    monkeypatch.delenv("DATABASE_CONNECT_TIMEOUT", raising=False)
+    assert load_fresh_config(monkeypatch).DATABASE_CONNECT_TIMEOUT == 5

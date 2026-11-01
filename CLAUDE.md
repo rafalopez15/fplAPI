@@ -43,6 +43,7 @@ src/
   models/                Pydantic response models (ElementResponse, EventResponse)
   util/
     config.py            Reads .env (python-dotenv) into module-level constants
+    database.py          SQLAlchemy engine and is_database_reachable()
     fpl_service.py       FplService singleton: fetches and caches FPL data
 tests/                   pytest suite, one file per layer
 ```
@@ -61,6 +62,13 @@ tests/                   pytest suite, one file per layer
 - Required variables (`FPL_BASE_URL`, `FPL_BOOTSTRAP_STATIC_PATH`) go through `_get_env()`, which raises at import time if one is missing so the app fails fast. Optional ones, like `FPL_REQUEST_TIMEOUT` (default 10s), use `os.getenv` with a default.
 - Endpoint URLs are built as base URL + path. To add an endpoint, add an `FPL_..._PATH` variable to `.env` and `.env.example`, then a constant in `config.py`.
 - `.env` is gitignored; `.env.example` is committed and must stay in sync with it.
+
+### Database
+- Postgres on Supabase, accessed with SQLAlchemy (sync engine, psycopg 3 driver).
+- `DATABASE_URL` (required) is the Supabase **session pooler** URI with the scheme changed to `postgresql+psycopg://` and `?sslmode=require` added. The session pooler works over IPv4 and supports prepared statements; the direct connection is IPv6-only. `DATABASE_CONNECT_TIMEOUT` (default 5s) is optional.
+- Never print or log `DATABASE_URL`: it contains the password.
+- SQLAlchemy calls are blocking, so run them in `asyncio.to_thread` from async code, like FPL fetches.
+- `/healthcheck` returns `{"status": "ok", "database": "ok" | "unavailable"}`, always with 200, so a database outage doesn't make a host restart the app.
 
 ### Fetching
 - `requests` is blocking, so it runs in `asyncio.to_thread` with a timeout to keep the event loop free.
@@ -86,6 +94,7 @@ Use these status codes consistently:
   - Sets the required env vars before importing `src`, so tests don't need a `.env` file (e.g. in CI).
   - `loaded_service` preloads the `FplService` singleton with sample data built by `make_element()` and `make_event()`, and resets it afterwards.
   - The autouse fixture `block_network` makes any real `requests.get` call fail the test. Mock it with `monkeypatch` when a test needs a response.
+  - The autouse fixture `block_database` does the same for `database.engine.connect`. Patch `database.is_database_reachable` (or `engine.connect`) when a test hits `/healthcheck`.
 - Async code is tested with `asyncio.run(...)`, so pytest-asyncio isn't needed. Routes are tested with `fastapi.testclient.TestClient`. Use it as a context manager only when the lifespan (startup fetch) should run.
 - `config.py` import-time behavior is tested by running it as a fresh module (`load_fresh_config`), so the real module stays untouched.
 - Every new code path needs tests, including its error paths.
