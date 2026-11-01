@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 from main import app
+from src.models.element import ElementResponse
 from src.util.fpl_service import FplService
 
 pytestmark = pytest.mark.usefixtures("loaded_service")
@@ -18,10 +19,43 @@ def client():
 
 # --- elements -------------------------------------------------------------
 
-def test_get_elements(client, fpl_data):
+def test_get_elements(client):
     response = client.get("/api/elements")
     assert response.status_code == 200
-    assert response.json() == fpl_data["elements"]
+    assert [e["web_name"] for e in response.json()] == ["Saka", "Haaland", "Palmer"]
+
+
+def test_get_elements_uses_response_model(client):
+    element = client.get("/api/elements").json()[0]
+    assert element.keys() == ElementResponse.model_fields.keys()
+    assert "influence_rank" not in element
+
+
+def test_element_decimal_strings_become_numbers(client):
+    element = client.get("/api/elements/1").json()
+    assert element["form"] == 6.0
+    assert element["selected_by_percent"] == 40.1
+    assert element["expected_goals"] == 3.21
+
+
+def test_element_nullable_fields(client, loaded_service):
+    loaded_service.fpl_data["elements"][0].update(
+        chance_of_playing_next_round=75,
+        news_added="2026-10-20T10:30:12.123456Z",
+        ep_next=None,
+    )
+    element = client.get("/api/elements/1").json()
+    assert element["chance_of_playing_next_round"] == 75
+    assert element["chance_of_playing_this_round"] is None
+    assert element["news_added"] == "2026-10-20T10:30:12.123456Z"
+    assert element["ep_next"] is None
+
+
+def test_element_missing_optional_field_is_null(client, loaded_service):
+    del loaded_service.fpl_data["elements"][0]["minutes"]
+    response = client.get("/api/elements/1")
+    assert response.status_code == 200
+    assert response.json()["minutes"] is None
 
 
 def test_get_elements_empty(client, loaded_service):

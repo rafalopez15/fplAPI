@@ -1,17 +1,17 @@
-from typing import List
+from typing import List, Optional
 from src.models.element import ElementResponse
 from src.util.fpl_service import FplService
 
 fpl_service = FplService()
 
 
-def get_elements() -> List[any]:
+def get_elements() -> List[dict]:
     """Return every player as the raw dicts FPL sends. FPL calls players "elements"."""
     elements = fpl_service.get_data("elements")
     return elements
 
 
-def get_element_by_id(element_id: int) -> ElementResponse:
+def get_element_by_id(element_id: int) -> Optional[ElementResponse]:
     """Return the player with this FPL id, or None if there isn't one."""
     elements = get_elements()
     for element in elements:

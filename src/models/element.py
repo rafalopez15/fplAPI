@@ -1,19 +1,65 @@
+from datetime import datetime
+from typing import Optional
 from pydantic import BaseModel
 
 
 class ElementResponse(BaseModel):
-    element_type: int
-    event_points: int
-    first_name: str
-    form: str
+    """A player. FPL sends decimals as strings ("4.8"); float fields convert them.
+
+    Only the fields the app can't work without are required. The rest default to
+    None, so if FPL drops a field or starts sending null for it, the endpoints
+    return null for that field instead of failing.
+    """
+    # Required
     id: int
-    news: str
-    now_cost: int
-    points_per_game: str
-    second_name: str
-    selected_by_percent: str
-    status: str
-    team: int
-    team_code: int
-    total_points: int
     web_name: str
+    team: int
+    element_type: int
+    now_cost: int  # in tenths of a million: 62 is £6.2m
+    status: str
+
+    # Identity
+    code: Optional[int] = None
+    first_name: Optional[str] = None
+    second_name: Optional[str] = None
+    team_code: Optional[int] = None
+    photo: Optional[str] = None
+
+    # Availability
+    news: Optional[str] = None
+    news_added: Optional[datetime] = None
+    chance_of_playing_next_round: Optional[int] = None
+    chance_of_playing_this_round: Optional[int] = None
+
+    # Price changes and transfers
+    cost_change_event: Optional[int] = None
+    cost_change_start: Optional[int] = None
+    selected_by_percent: Optional[float] = None
+    transfers_in_event: Optional[int] = None
+    transfers_out_event: Optional[int] = None
+
+    # Points
+    total_points: Optional[int] = None
+    event_points: Optional[int] = None
+    points_per_game: Optional[float] = None
+    form: Optional[float] = None
+    ep_next: Optional[float] = None
+
+    # Season stats
+    minutes: Optional[int] = None
+    starts: Optional[int] = None
+    goals_scored: Optional[int] = None
+    assists: Optional[int] = None
+    clean_sheets: Optional[int] = None
+    goals_conceded: Optional[int] = None
+    saves: Optional[int] = None
+    bonus: Optional[int] = None
+    yellow_cards: Optional[int] = None
+    red_cards: Optional[int] = None
+
+    # Advanced stats
+    expected_goals: Optional[float] = None
+    expected_assists: Optional[float] = None
+    expected_goal_involvements: Optional[float] = None
+    expected_goals_conceded: Optional[float] = None
+    ict_index: Optional[float] = None

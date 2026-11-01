@@ -22,7 +22,7 @@ Adapted from [andrej-karpathy-skills/CLAUDE.md](https://github.com/multica-ai/an
 
 ```bash
 source env/bin/activate              # venv lives in env/ (not .env, which is config)
-pip install -r requirements-dev.txt  # app + test dependencies
+pip install -r requirements-dev.txt  # app, test and lint dependencies
 cp .env.example .env                 # first-time setup
 fastapi dev main.py                  # run locally with reload
 python -m pytest                     # tests + coverage report (fails under 95%)
@@ -95,7 +95,7 @@ Use these status codes consistently:
 - Python **3.10+**. 3.9 is end-of-life, and GitHub's Ubuntu 26.04 runners don't provide it.
 - CI runs two workflows on every push, both on Python 3.13: `.github/workflows/pylint.yml` lints, and `.github/workflows/tests.yml` runs pytest with the 95% coverage gate. Each writes a summary table to the run page: test pass rate and failures via `.github/scripts/summarize_tests.py`, and pylint score and issues via `.github/scripts/summarize_pylint.py`.
 - `.pylintrc` turns off docstring checks and `too-few-public-methods`. Test files disable `redefined-outer-name` (pytest fixtures) at the top of the file. Fix any other warnings rather than silencing them.
-- Runtime dependencies are pinned in `requirements.txt`; test tools in `requirements-dev.txt`, which includes it.
+- Runtime dependencies are pinned in `requirements.txt`; test and lint tools in `requirements-dev.txt`, which includes it.
 
 ## Known gaps
 
