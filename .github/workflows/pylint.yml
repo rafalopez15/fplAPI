@@ -14,7 +14,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements-dev.txt pylint
+        pip install -r requirements-dev.txt
     - name: Analysing the code with pylint
       # Readable output in the log, plus a JSON report for the summary step.
       run: |
