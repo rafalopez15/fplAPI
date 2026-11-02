@@ -4,8 +4,6 @@ import os
 
 # Config is read at import time, so make sure it exists before importing src.
 # This keeps the suite independent of a local .env file (e.g. in CI).
-os.environ.setdefault("FPL_BASE_URL", "https://fantasy.premierleague.com/api")
-os.environ.setdefault("FPL_BOOTSTRAP_STATIC_PATH", "/bootstrap-static/")
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://test:test@localhost:5432/test")
 
 from pathlib import Path  # pylint: disable=wrong-import-position

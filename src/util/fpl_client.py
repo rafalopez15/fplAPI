@@ -1,14 +1,15 @@
 import logging
 import requests
-from src.util.config import (
-    FPL_BOOTSTRAP_STATIC_URL,
-    FPL_ENTRY_URL,
-    FPL_FIXTURES_URL,
-    FPL_PROXY_TIMEOUT,
-    FPL_REQUEST_TIMEOUT,
-)
+from src.util.config import FPL_BASE_URL, FPL_PROXY_TIMEOUT, FPL_REQUEST_TIMEOUT
 
 logger = logging.getLogger(__name__)
+
+# FPL's endpoints. They're part of FPL's API and the same in every environment,
+# so they're constants rather than settings.
+BOOTSTRAP_STATIC_URL = f"{FPL_BASE_URL}/bootstrap-static/"
+FIXTURES_URL = f"{FPL_BASE_URL}/fixtures/"
+# Manager endpoints: ENTRY_URL + "{id}/", "{id}/transfers/" or "{id}/history/".
+ENTRY_URL = f"{FPL_BASE_URL}/entry/"
 
 # Identifies us to FPL instead of the default "python-requests/x.y".
 HEADERS = {"User-Agent": "fplAPI/1.0 (+https://github.com/rafalopez15/fplAPI)"}
@@ -37,12 +38,12 @@ def _get_json(url: str, timeout: float = FPL_REQUEST_TIMEOUT):
 
 def fetch_bootstrap_static() -> dict:
     """Fetch bootstrap-static: teams, positions, players and gameweeks. Used by the sync job."""
-    return _get_json(FPL_BOOTSTRAP_STATIC_URL)
+    return _get_json(BOOTSTRAP_STATIC_URL)
 
 
 def fetch_fixtures() -> list:
     """Fetch every fixture of the season, finished or not. Used by the sync job."""
-    return _get_json(FPL_FIXTURES_URL)
+    return _get_json(FIXTURES_URL)
 
 
 def _get_manager_json(path: str):
@@ -52,7 +53,7 @@ def _get_manager_json(path: str):
     else that goes wrong: timeouts, connection errors, 5xx and 429 responses, and
     FPL's HTML "the game is being updated" page, which isn't JSON.
     """
-    url = FPL_ENTRY_URL + path
+    url = ENTRY_URL + path
     try:
         return _get_json(url, timeout=FPL_PROXY_TIMEOUT)
     except requests.exceptions.HTTPError as exc:

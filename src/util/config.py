@@ -18,13 +18,11 @@ def _get_env(key: str) -> str:
     return value
 
 
-FPL_BASE_URL = _get_env("FPL_BASE_URL").rstrip("/")
-FPL_BOOTSTRAP_STATIC_URL = FPL_BASE_URL + _get_env("FPL_BOOTSTRAP_STATIC_PATH")
-# Optional with a default: only the sync job calls FPL, and a new required
-# setting would stop the deployed API from starting until it was added there too.
-FPL_FIXTURES_URL = FPL_BASE_URL + os.getenv("FPL_FIXTURES_PATH", "/fixtures/")
-# Manager endpoints: FPL_ENTRY_URL + "{id}/", "{id}/transfers/" or "{id}/history/".
-FPL_ENTRY_URL = FPL_BASE_URL + os.getenv("FPL_ENTRY_PATH", "/entry/")
+# FPL's API paths are constants in fpl_client.py. Only the base URL can be
+# overridden, e.g. to point at a local mock.
+FPL_BASE_URL = (
+    (os.getenv("FPL_BASE_URL") or "").strip() or "https://fantasy.premierleague.com/api"
+).rstrip("/")
 FPL_REQUEST_TIMEOUT = float(os.getenv("FPL_REQUEST_TIMEOUT", "10"))
 # Shorter than the sync's timeout: someone in the app is waiting on these calls.
 FPL_PROXY_TIMEOUT = float(os.getenv("FPL_PROXY_TIMEOUT", "5"))
