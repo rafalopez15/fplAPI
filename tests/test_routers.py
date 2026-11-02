@@ -1,20 +1,23 @@
 # pytest fixtures are injected as same-named arguments.
 # pylint: disable=redefined-outer-name
-from unittest.mock import AsyncMock
+from datetime import datetime, timezone
 
 import pytest
-from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, delete
+from sqlalchemy.orm import Session
 from main import app
+from src.db.models import Element, Event, SyncRun, Team
 from src.models.element import ElementResponse
-from src.util.fpl_service import FplService
+from src.models.event import EventResponse
+from src.models.team import TeamResponse
+from src.util import database
 
-pytestmark = pytest.mark.usefixtures("loaded_service")
 
-
-@pytest.fixture
-def client():
-    # Not used as a context manager, so the startup fetch (lifespan) is skipped.
-    return TestClient(app)
+def update_row(session, model, row_id, **values):
+    row = session.get(model, row_id)
+    for name, value in values.items():
+        setattr(row, name, value)
+    session.flush()
 
 
 # --- elements -------------------------------------------------------------
@@ -28,20 +31,21 @@ def test_get_elements(client):
 def test_get_elements_uses_response_model(client):
     element = client.get("/api/elements").json()[0]
     assert element.keys() == ElementResponse.model_fields.keys()
-    assert "influence_rank" not in element
+    assert "updated_at" not in element
 
 
-def test_element_decimal_strings_become_numbers(client):
+def test_element_decimals_are_numbers(client):
     element = client.get("/api/elements/1").json()
     assert element["form"] == 6.0
     assert element["selected_by_percent"] == 40.1
     assert element["expected_goals"] == 3.21
 
 
-def test_element_nullable_fields(client, loaded_service):
-    loaded_service.fpl_data["elements"][0].update(
+def test_element_nullable_fields(client, seeded_session):
+    update_row(
+        seeded_session, Element, 1,
         chance_of_playing_next_round=75,
-        news_added="2026-10-20T10:30:12.123456Z",
+        news_added=datetime(2026, 10, 20, 10, 30, 12, 123456, tzinfo=timezone.utc),
         ep_next=None,
     )
     element = client.get("/api/elements/1").json()
@@ -51,28 +55,21 @@ def test_element_nullable_fields(client, loaded_service):
     assert element["ep_next"] is None
 
 
-def test_element_selection_flags(client, loaded_service):
-    loaded_service.fpl_data["elements"][0].update(can_select=False, status="u")
+def test_element_selection_flags(client, seeded_session):
+    update_row(seeded_session, Element, 1, can_select=False, status="u")
     element = client.get("/api/elements/1").json()
     assert element["can_select"] is False
     assert element["can_transact"] is True
     assert element["removed"] is False
 
 
-def test_unselectable_players_are_not_filtered_out(client, loaded_service):
-    loaded_service.fpl_data["elements"][0]["can_select"] = False
+def test_unselectable_players_are_not_filtered_out(client, seeded_session):
+    update_row(seeded_session, Element, 1, can_select=False)
     assert len(client.get("/api/elements").json()) == 3
 
 
-def test_element_missing_optional_field_is_null(client, loaded_service):
-    del loaded_service.fpl_data["elements"][0]["minutes"]
-    response = client.get("/api/elements/1")
-    assert response.status_code == 200
-    assert response.json()["minutes"] is None
-
-
-def test_get_elements_empty(client, loaded_service):
-    loaded_service.fpl_data["elements"] = []
+def test_get_elements_empty(client, seeded_session):
+    seeded_session.execute(delete(Element))
     response = client.get("/api/elements")
     assert response.status_code == 200
     assert response.json() == []
@@ -108,23 +105,34 @@ def test_get_elements_by_type_not_found(client):
 
 # --- events ---------------------------------------------------------------
 
-def test_get_events(client, fpl_data):
+def test_get_events(client):
     response = client.get("/api/events")
     assert response.status_code == 200
-    assert response.json() == fpl_data["events"]
+    body = response.json()
+    assert [e["id"] for e in body] == [8, 9, 10]
+    assert body[0].keys() == EventResponse.model_fields.keys()
 
 
-def test_get_events_empty(client, loaded_service):
-    loaded_service.fpl_data["events"] = []
+def test_get_events_empty(client, seeded_session):
+    seeded_session.execute(delete(Event))
     response = client.get("/api/events")
     assert response.status_code == 200
     assert response.json() == []
 
 
 def test_get_event_by_id(client):
-    response = client.get("/api/events/1")
+    response = client.get("/api/events/9")
     assert response.status_code == 200
-    assert response.json()["name"] == "Gameweek 1"
+    body = response.json()
+    assert body["name"] == "Gameweek 9"
+    assert body["deadline_time"] == "2026-10-31T11:00:00Z"
+    assert body["chip_plays"] == [{"chip_name": "bboost", "num_played": 814606}]
+
+
+def test_future_event_has_null_stats(client):
+    body = client.get("/api/events/10").json()
+    assert body["most_selected"] is None
+    assert body["top_element_info"] is None
 
 
 def test_get_event_by_id_not_found(client):
@@ -133,20 +141,17 @@ def test_get_event_by_id_not_found(client):
     assert response.json() == {"detail": "Event not found"}
 
 
-def test_get_current_event(client, monkeypatch):
-    monkeypatch.setattr(FplService, "get_fpl_api_data", AsyncMock())
+def test_get_current_event(client):
     response = client.get("/api/events/current-event/")
     assert response.status_code == 200
     body = response.json()
-    assert body["id"] == 2
-    assert body["top_element_info"] == {"id": 1, "points": 20}
-    assert "is_current" not in body  # filtered by EventResponse
+    assert body["id"] == 9
+    assert body["is_current"] is True
+    assert body["top_element_info"] == {"id": 2, "points": 17}
 
 
-def test_get_current_event_not_found(client, monkeypatch, loaded_service):
-    monkeypatch.setattr(FplService, "get_fpl_api_data", AsyncMock())
-    for event in loaded_service.fpl_data["events"]:
-        event["is_current"] = False
+def test_get_current_event_not_found(client, seeded_session):
+    update_row(seeded_session, Event, 9, is_current=False)
     response = client.get("/api/events/current-event/")
     assert response.status_code == 404
     assert response.json() == {"detail": "Current event not found"}
@@ -154,14 +159,18 @@ def test_get_current_event_not_found(client, monkeypatch, loaded_service):
 
 # --- teams ----------------------------------------------------------------
 
-def test_get_teams(client, fpl_data):
+def test_get_teams(client):
     response = client.get("/api/teams")
     assert response.status_code == 200
-    assert response.json() == fpl_data["teams"]
+    body = response.json()
+    assert [t["name"] for t in body] == ["Arsenal", "Man City"]
+    assert body[0].keys() == TeamResponse.model_fields.keys()
+    assert "pulse_id" not in body[0]  # FPL sends it, but it isn't stored
 
 
-def test_get_teams_empty(client, loaded_service):
-    loaded_service.fpl_data["teams"] = []
+def test_get_teams_empty(client, seeded_session):
+    seeded_session.execute(delete(Element))
+    seeded_session.execute(delete(Team))
     response = client.get("/api/teams")
     assert response.status_code == 200
     assert response.json() == []
@@ -170,7 +179,7 @@ def test_get_teams_empty(client, loaded_service):
 def test_get_team_by_name(client):
     response = client.get("/api/teams/Man City")
     assert response.status_code == 200
-    assert response.json() == {"id": 2, "name": "Man City"}
+    assert response.json()["short_name"] == "MCI"
 
 
 def test_get_team_by_name_not_found(client):
@@ -179,30 +188,43 @@ def test_get_team_by_name_not_found(client):
     assert response.json() == {"detail": "Team not found"}
 
 
-# --- data not loaded ------------------------------------------------------
+# --- data unavailable -----------------------------------------------------
 
-@pytest.mark.parametrize(
-    "path",
-    [
-        "/api/elements",
-        "/api/elements/1",
-        "/api/elements/position/3",
-        "/api/events",
-        "/api/events/1",
-        "/api/teams",
-        "/api/teams/Arsenal",
-    ],
-)
-def test_returns_503_when_data_not_loaded(client, loaded_service, path):
-    loaded_service.fpl_data = None
+DATA_PATHS = [
+    "/api/elements",
+    "/api/elements/1",
+    "/api/elements/position/3",
+    "/api/events",
+    "/api/events/1",
+    "/api/events/current-event/",
+    "/api/teams",
+    "/api/teams/Arsenal",
+]
+
+
+@pytest.mark.parametrize("path", DATA_PATHS)
+def test_returns_503_before_the_first_sync(client, seeded_session, path):
+    seeded_session.execute(delete(SyncRun))
     response = client.get(path)
     assert response.status_code == 503
     assert response.json() == {"detail": "FPL data is currently unavailable"}
 
 
-def test_current_event_returns_503_when_refresh_fails_and_no_cache(
-    client, monkeypatch, loaded_service
-):
-    loaded_service.fpl_data = None
-    monkeypatch.setattr(FplService, "get_fpl_api_data", AsyncMock())
-    assert client.get("/api/events/current-event/").status_code == 503
+def test_failed_syncs_alone_still_return_503(client, seeded_session):
+    seeded_session.execute(delete(SyncRun))
+    seeded_session.add(SyncRun(kind="bootstrap", status="failed"))
+    assert client.get("/api/teams").status_code == 503
+
+
+@pytest.mark.parametrize("path", DATA_PATHS)
+def test_returns_503_when_the_database_is_unreachable(client, path):
+    unreachable = create_engine("postgresql+psycopg://x:x@localhost:1/x")
+
+    def get_session():
+        with Session(unreachable) as session:
+            yield session
+
+    app.dependency_overrides[database.get_session] = get_session
+    response = client.get(path)
+    assert response.status_code == 503
+    assert response.json() == {"detail": "FPL data is currently unavailable"}

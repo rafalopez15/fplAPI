@@ -17,7 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from src.db.models import Base, Element, ElementType, Event, SyncRun, Team
 from src.util import database
-from src.util.fpl_service import fetch_bootstrap_static
+from src.util.fpl_client import fetch_bootstrap_static
 
 logger = logging.getLogger(__name__)
 

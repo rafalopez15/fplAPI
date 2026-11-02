@@ -10,7 +10,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from src.db.models import Base, Element, Event, SyncRun, Team
 from src.jobs import sync_bootstrap as job
-from tests.conftest import make_element
+from tests.conftest import ELEMENT_TYPES, future_event, make_element, make_event, make_team
 
 
 @pytest.fixture
@@ -22,65 +22,12 @@ def engine(db_engine):
         connection.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
 
 
-def make_team(**overrides):
-    team = {
-        "id": 1, "code": 3, "name": "Arsenal", "short_name": "ARS", "position": 1,
-        "played": 9, "win": 7, "draw": 1, "loss": 1, "points": 22, "strength": None,
-        "strength_overall_home": 1300, "strength_overall_away": 1320,
-        "strength_attack_home": 1250, "strength_attack_away": 1290,
-        "strength_defence_home": 1340, "strength_defence_away": 1350,
-        # Fields FPL sends that aren't columns.
-        "form": None, "pulse_id": 1, "unavailable": False,
-    }
-    team.update(overrides)
-    return team
-
-
-def make_element_type(id_, name):
-    return {
-        "id": id_, "singular_name": name, "singular_name_short": name[:3].upper(),
-        "plural_name": f"{name}s", "plural_name_short": name[:3].upper(),
-        "squad_select": 5, "squad_min_play": 1, "squad_max_play": 5,
-        "element_count": 100, "ui_shirt_specific": False,
-    }
-
-
-def make_event(**overrides):
-    event = {
-        "id": 9, "name": "Gameweek 9", "deadline_time": "2026-10-31T11:00:00Z",
-        "deadline_time_epoch": 1793444400, "deadline_time_game_offset": 0,
-        "release_time": None, "finished": False, "data_checked": False,
-        "is_previous": False, "is_current": True, "is_next": False,
-        "average_entry_score": 52, "highest_score": 127, "highest_scoring_entry": 12345,
-        "transfers_made": 9000000, "most_selected": 1, "most_transferred_in": 2,
-        "most_captained": 2, "most_vice_captained": 1, "top_element": 2,
-        "top_element_info": {"id": 2, "points": 17},
-        "chip_plays": [{"chip_name": "bboost", "num_played": 814606}],
-        "can_enter": False,
-    }
-    event.update(overrides)
-    return event
-
-
-def future_event():
-    return make_event(
-        id=10, name="Gameweek 10", deadline_time="2026-11-07T13:30:00Z",
-        deadline_time_epoch=1794058200, is_current=False, is_next=True,
-        average_entry_score=0, highest_score=None, highest_scoring_entry=None,
-        most_selected=None, most_transferred_in=None, most_captained=None,
-        most_vice_captained=None, top_element=None, top_element_info=None, chip_plays=[],
-    )
-
-
 @pytest.fixture
 def bootstrap():
     """A small bootstrap-static response with FPL's raw values (decimals as strings)."""
     return {
         "teams": [make_team(), make_team(id=2, code=43, name="Man City", short_name="MCI")],
-        "element_types": [
-            make_element_type(id_, name)
-            for id_, name in enumerate(["Goalkeeper", "Defender", "Midfielder", "Forward"], 1)
-        ],
+        "element_types": ELEMENT_TYPES,
         "elements": [
             make_element(id=1),
             make_element(id=2, web_name="Haaland", team=2, element_type=4, form="8.1"),

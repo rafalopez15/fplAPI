@@ -106,6 +106,8 @@ fastapi dev main.py
 ```
 The API runs at `http://127.0.0.1:8000`, with interactive docs at `/docs`. Endpoints are under `/api`, e.g. `/api/elements`. The server reloads when code changes.
 
+The API serves FPL data from the database in `DATABASE_URL` and never calls FPL itself. Until the first sync succeeds, data endpoints return 503. To sync straight away instead of waiting for the hourly job, run `python -m src.jobs.sync_bootstrap`. `/healthcheck` shows when data was last synced (`last_sync`).
+
 ## ✅ Tests and linting
 The database tests run against a local Postgres in Docker, never Supabase. On macOS, [Colima](https://github.com/abiosoft/colima) is a lightweight way to run Docker:
 
