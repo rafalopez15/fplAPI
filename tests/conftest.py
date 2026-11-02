@@ -184,7 +184,7 @@ def block_network(monkeypatch):
     def _blocked(*args, **kwargs):
         raise AssertionError(f"Unexpected network call: {args} {kwargs}")
 
-    monkeypatch.setattr("src.util.fpl_service.requests.get", _blocked)
+    monkeypatch.setattr("src.util.fpl_client.requests.get", _blocked)
 
 
 @pytest.fixture(autouse=True)
