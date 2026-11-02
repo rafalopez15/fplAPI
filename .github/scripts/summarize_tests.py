@@ -1,7 +1,15 @@
-"""Summarize a pytest JUnit XML report in the job log and GitHub step summary."""
+"""Summarize a pytest JUnit XML report in the job log and GitHub step summary.
+
+    python summarize_tests.py test-results.xml [tests-summary.md]
+
+The optional second argument also writes the Markdown to a file, which the CI
+workflow posts as a PR comment.
+"""
 import os
 import sys
 import xml.etree.ElementTree as ET
+
+from summary_output import write_markdown
 
 
 def read_results(report_path):
@@ -48,8 +56,14 @@ def to_markdown(results, status, percent):
 
 def main():
     report_path = sys.argv[1] if len(sys.argv) > 1 else "test-results.xml"
+    markdown_path = sys.argv[2] if len(sys.argv) > 2 else None
     if not os.path.exists(report_path):
-        print(f"No test report found at {report_path}; pytest likely failed before running tests.")
+        message = (
+            f"No test report found at {report_path}; "
+            "pytest likely failed before running tests."
+        )
+        print(message)
+        write_markdown(f"## ⚠️ No test results\n\n{message}\n", markdown_path)
         return
 
     results = read_results(report_path)
@@ -64,10 +78,7 @@ def main():
     for name, message in results["failures"]:
         print(f"  FAILED {name}: {message}")
 
-    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary_path:
-        with open(summary_path, "a", encoding="utf-8") as summary:
-            summary.write(to_markdown(results, status, percent))
+    write_markdown(to_markdown(results, status, percent), markdown_path)
 
 
 if __name__ == "__main__":
