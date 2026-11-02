@@ -79,10 +79,9 @@ The one exception is `/managers/...`: manager data is per user and can't be sync
 ## Design decisions
 
 ### Configuration
-- All URLs and tunables live in `.env`, are read in `src/util/config.py`, and are imported as constants. Never hardcode URLs.
-- Required variables (`FPL_BASE_URL`, `FPL_BOOTSTRAP_STATIC_PATH`, `DATABASE_URL`) go through `_get_env()`, which strips surrounding whitespace and raises at import time if one is missing or empty, so the app fails fast. Optional ones, like `FPL_REQUEST_TIMEOUT` (default 10s), use `os.getenv` with a default.
-- Endpoint URLs are built as base URL + path. To add an endpoint, add an `FPL_..._PATH` variable to `.env` and `.env.example`, then a constant in `config.py`.
-- New FPL paths should be **optional with a default**, like `FPL_FIXTURES_PATH` (default `/fixtures/`). The deployed API imports `config.py` too, so a new required setting would stop it from starting until it was added in Vercel, even though only the sync job calls FPL.
+- **Secrets and per-environment settings live in `.env`**, are read in `src/util/config.py`, and are imported as constants. Values that are the same everywhere don't belong there.
+- `DATABASE_URL` is the only required setting. It goes through `_get_env()`, which strips surrounding whitespace and raises at import time if it's missing or empty, so the app fails fast. Optional ones, like `FPL_REQUEST_TIMEOUT` (default 10s), use `os.getenv` with a default. A new setting should be optional with a default: the deployed API imports `config.py` too, and a new required setting would stop it from starting until it was added in Vercel.
+- **FPL's API paths are constants in `src/util/fpl_client.py`** (`BOOTSTRAP_STATIC_URL`, `FIXTURES_URL`, `ENTRY_URL`), built from `FPL_BASE_URL`. That one is optional, defaulting to `https://fantasy.premierleague.com/api`, so it can point at a local mock. To call a new FPL endpoint, add a constant there, not a setting.
 - `.env` is gitignored; `.env.example` is committed and must stay in sync with it.
 
 ### Database
@@ -124,7 +123,7 @@ Use these status codes consistently:
 ### Hosting
 - Production runs on **Vercel** (Hobby plan: personal, non-commercial use only), decided in the FPL-25 spike. Vercel's zero-config FastAPI support serves the `app` in `main.py`; there's no Vercel-specific code.
 - `vercel.json` pins the region to `cle1` (Cleveland, AWS us-east-2, next to Supabase), and `.python-version` pins Python 3.13. Keep that file in step with CI's Python.
-- Secrets live in Vercel's environment variables (`DATABASE_URL` marked Sensitive) plus the two FPL settings `config.py` requires. Pushes to `main` deploy to production; PRs get preview URLs.
+- Vercel's only required environment variable is `DATABASE_URL` (marked Sensitive). Pushes to `main` deploy to production; PRs get preview URLs.
 - Instances scale to zero, so the first request after idle has a cold start of a second or two. An always-warm instance needs Vercel Pro.
 - The `Dockerfile` (`python:3.13-slim`, runtime dependencies only, non-root) is for local runs and a future move to a container host such as Cloud Run, the fallback if the app goes commercial. Vercel doesn't use it. `.dockerignore` keeps `.env`, `env/`, tests and migrations out of the image; use `**/` patterns so they match in subfolders.
 
@@ -152,6 +151,6 @@ Use these status codes consistently:
 - Two more workflows use the Supabase database through the `DATABASE_URL` repository secret, and share the `database` concurrency group so they never overlap:
   - `sync-bootstrap.yml` runs the bootstrap sync hourly (cron `17 * * * *`) and on manual dispatch.
   - `migrate.yml` runs `alembic upgrade head` on pushes to `main` that touch `migrations/`, `src/db/` or `alembic.ini`, and on manual dispatch. Migrations reach Supabase this way, not from a laptop.
-  - Both copy `.env.example` to `.env` for the FPL URLs; the secret's `DATABASE_URL` takes precedence. Scheduled workflows only run from `main`.
+  - Both need only the `DATABASE_URL` secret; every other setting has a default. Scheduled workflows only run from `main`.
 - `.pylintrc` turns off docstring checks and `too-few-public-methods`, and ignores `alembic.context` and `alembic.op` for member checks because they're populated at runtime. Migration files disable `invalid-name` on their first line, because Alembic requires names like `revision` and file names start with the revision id (the template in `migrations/script.py.mako` adds it). Test files disable `redefined-outer-name` (pytest fixtures) at the top of the file. Fix any other warnings rather than silencing them.
 - Runtime dependencies are pinned in `requirements.txt`; test and lint tools in `requirements-dev.txt`, which includes it.

@@ -37,10 +37,7 @@ alembic upgrade head           # create or update the database schema
 
 | Variable | Required | Description |
 |---|---|---|
-| `FPL_BASE_URL` | Yes | Base URL of the official FPL API |
-| `FPL_BOOTSTRAP_STATIC_PATH` | Yes | Path of FPL's `bootstrap-static` endpoint |
-| `FPL_FIXTURES_PATH` | No | Path of FPL's fixtures endpoint (default `/fixtures/`) |
-| `FPL_ENTRY_PATH` | No | Path of FPL's manager endpoints (default `/entry/`) |
+| `FPL_BASE_URL` | No | Base URL of FPL's API (default `https://fantasy.premierleague.com/api`). Only set it to point at a local mock |
 | `FPL_PROXY_TIMEOUT` | No | Seconds before a live call to FPL from the manager endpoints times out (default 5) |
 | `FPL_REQUEST_TIMEOUT` | No | Seconds before an FPL request times out (default 10) |
 | `DATABASE_URL` | Yes | Supabase connection string (see below) |
@@ -142,10 +139,8 @@ In the Vercel project, under **Settings → Environment Variables**, set:
 | Variable | Value |
 |---|---|
 | `DATABASE_URL` | The same session pooler URL as in `.env`. Mark it **Sensitive**. |
-| `FPL_BASE_URL` | `https://fantasy.premierleague.com/api` |
-| `FPL_BOOTSTRAP_STATIC_PATH` | `/bootstrap-static/` |
 
-The API doesn't call FPL, but `config.py` requires the two FPL settings at startup. After a deploy, `https://<project>.vercel.app/healthcheck` should return `"database": "ok"` with a recent `last_sync`.
+That's the only required setting; the others have defaults. After a deploy, `https://<project>.vercel.app/healthcheck` should return `"database": "ok"` with a recent `last_sync`.
 
 The first request after a few idle minutes takes a second or two while Vercel starts an instance. Migrations and the hourly sync still run from GitHub Actions, not Vercel.
 
