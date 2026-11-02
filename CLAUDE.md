@@ -1,6 +1,6 @@
 # fplAPI
 
-FastAPI service that wraps the official Fantasy Premier League (FPL) API and exposes a cleaner REST interface. Its main consumer will be an iOS app.
+FastAPI service that serves Fantasy Premier League (FPL) data through a cleaner REST interface, from a Postgres copy of the official FPL API that an hourly job keeps current. Its main consumer will be an iOS app.
 
 ## Working guidelines
 
@@ -38,7 +38,7 @@ colima start && docker start fplapi-test-db  # local test database (setup in REA
 ## Architecture
 
 ```
-main.py                  App setup: lifespan (initial data fetch), exception handlers, /healthcheck
+main.py                  App setup: exception handlers (503s), /healthcheck
 alembic.ini              Alembic settings; the database URL is set in migrations/env.py
 migrations/              Alembic environment and versions/ (one file per migration)
 src/
@@ -47,26 +47,26 @@ src/
     elements.py          /elements, /elements/{id}, /elements/position/{element_type}
     events.py            /events, /events/{id}, /events/current-event/
     teams.py             /teams, /teams/{team_name}
-  services/              Business logic: filters and lookups over the cached FPL data
-  models/                Pydantic response models (ElementResponse, EventResponse)
+  services/              Business logic: queries that return Pydantic models
+  models/                Pydantic response models (ElementResponse, EventResponse, TeamResponse)
   db/
     models.py            SQLAlchemy ORM tables; Alembic autogenerates migrations from them
   jobs/
     sync_bootstrap.py    Hourly job: upserts bootstrap-static into Postgres, records sync_runs
   util/
     config.py            Reads .env (python-dotenv) into module-level constants
-    database.py          SQLAlchemy engine and is_database_reachable()
-    fpl_service.py       fetch_bootstrap_static(), and the FplService singleton that caches it
+    database.py          Engine, session dependencies (DataSession), sync state, health checks
+    fpl_client.py        fetch_bootstrap_static(), used only by the sync job
 tests/                   pytest suite, one file per layer (test_db.py: schema and migrations)
 ```
 
-**Request flow:** router → service → `FplService().get_data(key)` → cached data from FPL's `bootstrap-static` endpoint.
+**Request flow:** router → service → SQLAlchemy query on Postgres → Pydantic response model. The API never calls FPL.
 
-- **Routers** handle HTTP concerns only: path parameters, status codes, `HTTPException`. They call services and never touch `FplService` directly.
-- **Services** are plain functions. They read collections through `FplService().get_data(...)` and return raw dicts, Pydantic models, or `None`/`[]` when nothing matches.
-- **`FplService`** is a process-wide singleton. `get_fpl_api_data()` fetches all of bootstrap-static once and stores it in `fpl_data`. Every read is served from that cache.
-- **Data refresh:** the lifespan hook fetches once at startup, and `/events/current-event/` refreshes before answering. No other endpoint triggers a fetch.
-- **Database sync:** separately, `src/jobs/sync_bootstrap.py` upserts bootstrap-static into Postgres every hour. The API doesn't read those tables yet; FPL-24 switches it over and removes the cache.
+- **Routers** handle HTTP concerns only: path parameters, status codes, `HTTPException`. Endpoints are plain `def`, so FastAPI runs them in its thread pool and the blocking database calls don't stall the event loop. Each takes a `session: DataSession` and passes it to a service.
+- **`DataSession`** (`src/util/database.py`) is the request's session from `get_session`, after `get_data_session` checks that a bootstrap sync has succeeded. Tests override `get_session`.
+- **Services** are plain functions that take the session first. They query with the ORM models and return Pydantic models (built with `model_validate(row)`), or `None`/`[]` when nothing matches. Lists are in FPL id order.
+- **Response models** use `from_attributes=True`. `EventResponse` rebuilds FPL's `top_element_info` object from the `top_element` and `top_element_points` columns.
+- **Data refresh:** `src/jobs/sync_bootstrap.py` upserts bootstrap-static into Postgres every hour (GitHub Actions). Nothing is fetched at startup or per request. `/healthcheck` reports the last successful sync as `last_sync`.
 
 ## Design decisions
 
@@ -87,19 +87,19 @@ tests/                   pytest suite, one file per layer (test_db.py: schema an
   - Rows are upserted, never deleted. `events.most_selected` and the other player ids deliberately have no foreign key, so a missing player can't fail a sync.
 - **Row-level security:** Supabase's Data API is off, and every table has RLS enabled with no policies, as a second layer. Autogenerate doesn't handle RLS, so every migration that creates a table must add `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`. `tests/test_db.py` fails if a table lacks it.
 - **New migration:** change `src/db/models.py`, then autogenerate against the test database, not Supabase: `DATABASE_URL=$TEST_DATABASE_URL alembic revision --autogenerate -m "..."`. Review the file, add RLS for new tables, wrap lines over 100 characters, run the tests, then `alembic upgrade head` against Supabase.
-- SQLAlchemy calls are blocking, so run them in `asyncio.to_thread` from async code, like FPL fetches.
-- `/healthcheck` returns `{"status": "ok", "database": "ok" | "unavailable"}`, always with 200, so a database outage doesn't make a host restart the app.
+- SQLAlchemy calls are blocking: use plain `def` endpoints (FastAPI's thread pool), or `asyncio.to_thread` from async code, as `/healthcheck` does.
+- `/healthcheck` returns `{"status": "ok", "database": "ok" | "unavailable", "last_sync": <ISO timestamp> | null}`, always with 200, so a database outage doesn't make a host restart the app.
 
 ### Fetching
-- `requests` is blocking, so it runs in `asyncio.to_thread` with a timeout to keep the event loop free.
-- `raise_for_status()` turns error responses into exceptions, and every `requests.exceptions.RequestException` is caught and logged. A failed fetch never raises and never crashes the app; any cached data is kept.
+- Only the sync job calls FPL, through `fetch_bootstrap_static()` in `src/util/fpl_client.py`, with a timeout.
+- It raises on network errors, error statuses (`raise_for_status()`) and invalid JSON. The job catches that, records the failed run, and leaves the previous data in place.
 
 ### Error responses
 Use these status codes consistently:
 
 | Situation | Status |
 |---|---|
-| FPL data never loaded (`FplDataUnavailableError`) | **503** `"FPL data is currently unavailable"`, raised by the global handler in `main.py` |
+| No bootstrap sync has succeeded yet (`FplDataUnavailableError`), or the database is unreachable (`OperationalError`) | **503** `"FPL data is currently unavailable"`, from the handlers in `main.py` |
 | Single-item lookup or filter finds nothing | **404** with a resource-specific detail, e.g. `"Team not found"` |
 | Collection endpoint with no items | **200** with `[]` |
 | Invalid path parameter type | **422** (FastAPI default) |
@@ -112,11 +112,12 @@ Use these status codes consistently:
 - pytest with pytest-cov. `pytest.ini` enforces **≥95% coverage** on `src` and `main`, currently at 100%.
 - `tests/conftest.py`:
   - Sets the required env vars before importing `src`, so tests don't need a `.env` file (e.g. in CI).
-  - `loaded_service` preloads the `FplService` singleton with sample data built by `make_element()` and `make_event()`, and resets it afterwards.
+  - FPL-shaped builders (`make_team()`, `make_element()`, `make_event()`, `future_event()`, `ELEMENT_TYPES`) are shared by the API and sync tests.
+  - `seeded_session` loads a small dataset into the test database through the sync job's `to_row()`: 2 teams, 4 positions, 3 players (Saka, Haaland, Palmer), gameweeks 8 to 10 and a successful sync run. `client` is a `TestClient` whose requests use that session. Change data in a test by editing rows in `seeded_session`.
   - The autouse fixture `block_network` makes any real `requests.get` call fail the test. Mock it with `monkeypatch` when a test needs a response.
   - The autouse fixture `block_database` does the same for `database.engine.connect`. Patch `database.is_database_reachable` (or `engine.connect`) when a test hits `/healthcheck`.
   - Database tests use a real Postgres from `TEST_DATABASE_URL` (in `.env` locally, a service container in CI). `db_engine` migrates it from scratch once per run, and `db_session` rolls back each test's changes, even after `commit()`. The fixture refuses a Supabase URL. Without `TEST_DATABASE_URL`, the database tests fail with setup instructions.
-- Async code is tested with `asyncio.run(...)`, so pytest-asyncio isn't needed. Routes are tested with `fastapi.testclient.TestClient`. Use it as a context manager only when the lifespan (startup fetch) should run.
+- Routes are tested with `fastapi.testclient.TestClient` (the `client` fixture). Async code is tested with `asyncio.run(...)`, so pytest-asyncio isn't needed.
 - `config.py` import-time behavior is tested by running it as a fresh module (`load_fresh_config`), so the real module stays untouched.
 - Every new code path needs tests, including its error paths.
 
@@ -130,7 +131,3 @@ Use these status codes consistently:
   - Both copy `.env.example` to `.env` for the FPL URLs; the secret's `DATABASE_URL` takes precedence. Scheduled workflows only run from `main`.
 - `.pylintrc` turns off docstring checks and `too-few-public-methods`, and ignores `alembic.context` and `alembic.op` for member checks because they're populated at runtime. Migration files disable `invalid-name` on their first line, because Alembic requires names like `revision` and file names start with the revision id (the template in `migrations/script.py.mako` adds it). Test files disable `redefined-outer-name` (pytest fixtures) at the top of the file. Fix any other warnings rather than silencing them.
 - Runtime dependencies are pinned in `requirements.txt`; test and lint tools in `requirements-dev.txt`, which includes it.
-
-## Known gaps
-
-- If the startup fetch fails, only `/events/current-event/` retries. Other endpoints keep returning 503 until it's called or the app restarts.
