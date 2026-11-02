@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import pytest
 import requests
 from src.util import fpl_client
-from src.util.config import FPL_BOOTSTRAP_STATIC_URL, FPL_REQUEST_TIMEOUT
+from src.util.config import FPL_BOOTSTRAP_STATIC_URL, FPL_FIXTURES_URL, FPL_REQUEST_TIMEOUT
 
 
 def mock_get(monkeypatch, response=None, side_effect=None):
@@ -54,3 +54,17 @@ def test_fetch_bootstrap_static_raises_on_invalid_json(monkeypatch):
 
     with pytest.raises(requests.exceptions.JSONDecodeError):
         fpl_client.fetch_bootstrap_static()
+
+
+def test_fetch_fixtures_returns_list(monkeypatch):
+    get = mock_get(monkeypatch, ok_response([{"id": 1}]))
+
+    assert fpl_client.fetch_fixtures() == [{"id": 1}]
+    get.assert_called_once_with(FPL_FIXTURES_URL, timeout=FPL_REQUEST_TIMEOUT)
+
+
+def test_fetch_fixtures_raises_on_error_status(monkeypatch):
+    mock_get(monkeypatch, error_response(503, "Service Unavailable"))
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        fpl_client.fetch_fixtures()

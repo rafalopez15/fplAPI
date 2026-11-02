@@ -21,6 +21,7 @@ from src.db.models import (  # pylint: disable=wrong-import-position
     Element,
     ElementType,
     Event,
+    Fixture,
     SyncRun,
     Team,
 )
@@ -138,10 +139,40 @@ def future_event():
     )
 
 
+def make_fixture(**overrides):
+    """An upcoming match, as FPL's /fixtures/ endpoint sends it."""
+    fixture = {
+        "id": 91, "code": 2561986, "event": 10, "team_h": 2, "team_a": 1,
+        "team_h_difficulty": 4, "team_a_difficulty": 5,
+        "kickoff_time": "2026-11-07T15:00:00Z", "started": False, "finished": False,
+        "team_h_score": None, "team_a_score": None,
+        # Fields FPL sends that aren't columns.
+        "finished_provisional": False, "minutes": 0, "provisional_start_time": False,
+        "stats": [], "pulse_id": 124881,
+    }
+    fixture.update(overrides)
+    return fixture
+
+
+SEEDED_FIXTURES = [
+    # Listed out of kickoff order, the way FPL's list can be.
+    make_fixture(),  # 91: gameweek 10, 7 Nov
+    make_fixture(id=71, event=8, team_h=1, team_a=2, team_h_difficulty=5,
+                 team_a_difficulty=4, kickoff_time="2026-10-25T15:00:00Z",
+                 started=True, finished=True, team_h_score=2, team_a_score=1),
+    make_fixture(id=85, event=None, kickoff_time=None),  # postponed, not rescheduled
+    # Played, but FPL hasn't confirmed bonus points, so not finished yet.
+    make_fixture(id=95, event=9, kickoff_time="2026-11-01T16:30:00Z",
+                 started=True, team_h_score=0, team_a_score=1),
+]
+
+
 @pytest.fixture
 def seeded_session(db_session):
     """The test database with a small synced dataset, as the bootstrap sync writes it:
-    2 teams, 4 positions, 3 players, gameweeks 8 to 10, and a successful sync run.
+    2 teams, 4 positions, 3 players, gameweeks 8 to 10, 4 fixtures (71 finished,
+    95 played but not yet finished, 91 upcoming, 85 postponed) and a successful
+    sync run.
     """
     data = [
         (Team, [make_team(), make_team(id=2, code=43, name="Man City", short_name="MCI")]),
@@ -157,6 +188,7 @@ def seeded_session(db_session):
             make_event(),
             future_event(),
         ]),
+        (Fixture, SEEDED_FIXTURES),
     ]
     for model, items in data:
         db_session.add_all(model(**to_row(model, item)) for item in items)

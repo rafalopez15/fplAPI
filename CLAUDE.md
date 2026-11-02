@@ -48,6 +48,7 @@ src/
     elements.py          /elements, /elements/{id}, /elements/position/{element_type}
     events.py            /events, /events/{id}, /events/current-event/
     teams.py             /teams, /teams/{team_name}
+    fixtures.py          /fixtures (optional ?finished= and ?started= filters)
   services/              Business logic: queries that return Pydantic models
   models/                Pydantic response models (ElementResponse, EventResponse, TeamResponse)
   db/
@@ -70,7 +71,7 @@ Dockerfile               Image for running the API locally (Vercel doesn't use i
 - **`DataSession`** (`src/util/database.py`) is the request's session from `get_session`, after `get_data_session` checks that a bootstrap sync has succeeded. Tests override `get_session`.
 - **Services** are plain functions that take the session first. They query with the ORM models and return Pydantic models (built with `model_validate(row)`), or `None`/`[]` when nothing matches. Lists are in FPL id order.
 - **Response models** use `from_attributes=True`. `EventResponse` rebuilds FPL's `top_element_info` object from the `top_element` and `top_element_points` columns.
-- **Data refresh:** `src/jobs/sync_bootstrap.py` upserts bootstrap-static into Postgres every hour (GitHub Actions). Nothing is fetched at startup or per request. `/healthcheck` reports the last successful sync as `last_sync`.
+- **Data refresh:** `src/jobs/sync_bootstrap.py` upserts bootstrap-static and FPL's `/fixtures/` into Postgres every hour (GitHub Actions), in one transaction. Nothing is fetched at startup or per request. `/healthcheck` reports the last successful sync as `last_sync`.
 
 ## Design decisions
 
@@ -78,6 +79,7 @@ Dockerfile               Image for running the API locally (Vercel doesn't use i
 - All URLs and tunables live in `.env`, are read in `src/util/config.py`, and are imported as constants. Never hardcode URLs.
 - Required variables (`FPL_BASE_URL`, `FPL_BOOTSTRAP_STATIC_PATH`, `DATABASE_URL`) go through `_get_env()`, which strips surrounding whitespace and raises at import time if one is missing or empty, so the app fails fast. Optional ones, like `FPL_REQUEST_TIMEOUT` (default 10s), use `os.getenv` with a default.
 - Endpoint URLs are built as base URL + path. To add an endpoint, add an `FPL_..._PATH` variable to `.env` and `.env.example`, then a constant in `config.py`.
+- New FPL paths should be **optional with a default**, like `FPL_FIXTURES_PATH` (default `/fixtures/`). The deployed API imports `config.py` too, so a new required setting would stop it from starting until it was added in Vercel, even though only the sync job calls FPL.
 - `.env` is gitignored; `.env.example` is committed and must stay in sync with it.
 
 ### Database
@@ -86,7 +88,8 @@ Dockerfile               Image for running the API locally (Vercel doesn't use i
 - **Connection pool:** `DATABASE_POOL_SIZE` (default 3) and `DATABASE_MAX_OVERFLOW` (default 2). Keep them small: every Vercel instance has its own pool, and Supabase's free pooler allows only a few connections in total.
 - Never print or log `DATABASE_URL`: it contains the password.
 - `migrations/env.py` reads the URL from `config.py`, never from `alembic.ini`, and escapes `%` for configparser. If a URL is already set (as the tests do), it keeps that one.
-- **Schema** (design in the FPL-7 spike's "Spike outcome" comment in Linear): `teams`, `element_types`, `elements`, `events`, `player_fixture_history` (one row per player per fixture, from `/element-summary/{id}/`) and `sync_runs`.
+- **Schema** (design in the FPL-7 spike's "Spike outcome" comment in Linear): `teams`, `element_types`, `elements`, `events`, `fixtures` (every match of the season, from `/fixtures/`), `player_fixture_history` (one row per player per fixture, from `/element-summary/{id}/`) and `sync_runs`.
+  - `fixtures.started` is true from kickoff. FPL only sets `finished` once the gameweek's bonus points are confirmed, a day or more after the match, so "still to be played" means `started = false`.
   - Column names are FPL's field names, so rows map 1:1 onto the Pydantic models. `elements` columns match `ElementResponse`, including which are `NOT NULL`.
   - Ids are FPL's, never generated (`autoincrement=False`). Decimals are `numeric`, timestamps are `timestamptz`.
   - Rows are upserted, never deleted. `events.most_selected` and the other player ids deliberately have no foreign key, so a missing player can't fail a sync.

@@ -174,6 +174,29 @@ class Event(Base):
     updated_at: Mapped[datetime] = updated_at()
 
 
+class Fixture(Base):
+    """A match, from FPL's /fixtures/ endpoint (synced with bootstrap-static).
+
+    event and kickoff_time are null while FPL hasn't scheduled a postponed match.
+    Scores are null until it's played. started is true from kickoff; FPL only sets
+    finished once the gameweek's bonus points are confirmed, a day or more later.
+    """
+    __tablename__ = "fixtures"
+
+    id: Mapped[int] = fpl_id()
+    event: Mapped[Optional[int]] = mapped_column(ForeignKey("events.id"))
+    team_h: Mapped[int] = mapped_column(ForeignKey("teams.id"))
+    team_a: Mapped[int] = mapped_column(ForeignKey("teams.id"))
+    team_h_difficulty: Mapped[int]  # FPL's 1-5 rating for the home team
+    team_a_difficulty: Mapped[int]
+    kickoff_time: Mapped[Optional[datetime]]
+    started: Mapped[bool]
+    finished: Mapped[bool]
+    team_h_score: Mapped[Optional[int]]
+    team_a_score: Mapped[Optional[int]]
+    updated_at: Mapped[datetime] = updated_at()
+
+
 class PlayerFixtureHistory(Base):
     """One player's stats in one fixture, from /element-summary/{id}/.
 

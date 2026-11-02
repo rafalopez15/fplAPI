@@ -8,9 +8,16 @@ import requests
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
-from src.db.models import Base, Element, Event, SyncRun, Team
+from src.db.models import Base, Element, Event, Fixture, SyncRun, Team
 from src.jobs import sync_bootstrap as job
-from tests.conftest import ELEMENT_TYPES, future_event, make_element, make_event, make_team
+from tests.conftest import (
+    ELEMENT_TYPES,
+    future_event,
+    make_element,
+    make_event,
+    make_fixture,
+    make_team,
+)
 
 
 @pytest.fixture
@@ -34,11 +41,19 @@ def bootstrap():
         ],
         "events": [make_event(), future_event()],
         "total_players": 11219378,
+        # Not part of bootstrap-static: run() serves these from the fixtures fetch.
+        "fixtures": [make_fixture(), make_fixture(id=85, event=None, kickoff_time=None)],
     }
 
 
 def run(engine, data):
-    return job.sync_bootstrap(engine, fetch=lambda: data)
+    """Sync data, serving "fixtures" from the fixtures fetch and the rest from bootstrap."""
+    bootstrap = {key: value for key, value in data.items() if key != "fixtures"}
+    return job.sync_bootstrap(
+        engine,
+        fetch=lambda: bootstrap,
+        fetch_fixtures_list=lambda: data.get("fixtures", []),
+    )
 
 
 def count(engine, model):
@@ -56,7 +71,7 @@ def sync_runs(engine):
 def test_first_sync_stores_everything(engine, bootstrap):
     assert run(engine, bootstrap) is True
 
-    assert [count(engine, model) for _, model in job.COLLECTIONS] == [2, 4, 2, 2]
+    assert [count(engine, model) for _, model in job.COLLECTIONS] == [2, 4, 2, 2, 2]
     with Session(engine) as session:
         haaland = session.get(Element, 2)
         assert haaland.form == Decimal("8.1")
@@ -84,7 +99,7 @@ def test_resync_updates_rows_in_place(engine, bootstrap):
     bootstrap["teams"][0]["position"] = 2
     assert run(engine, bootstrap) is True
 
-    assert [count(engine, model) for _, model in job.COLLECTIONS] == [2, 4, 2, 2]
+    assert [count(engine, model) for _, model in job.COLLECTIONS] == [2, 4, 2, 2, 2]
     with Session(engine) as session:
         saka = session.get(Element, 1)
         assert (saka.now_cost, saka.can_select) == (91, False)
@@ -129,12 +144,60 @@ def test_players_fpl_drops_are_kept(engine, bootstrap):
 
 def test_empty_collection_is_skipped(engine, bootstrap):
     bootstrap["events"] = []
+    bootstrap["fixtures"] = []  # they reference gameweeks
 
     assert run(engine, bootstrap) is True
     assert count(engine, Event) == 0
 
 
+def test_fixtures_are_stored(engine, bootstrap):
+    assert run(engine, bootstrap) is True
+
+    with Session(engine) as session:
+        fixture = session.get(Fixture, 91)
+        assert (fixture.event, fixture.team_h, fixture.team_a) == (10, 2, 1)
+        assert (fixture.team_h_difficulty, fixture.team_a_difficulty) == (4, 5)
+        assert fixture.kickoff_time.isoformat() == "2026-11-07T15:00:00+00:00"
+        postponed = session.get(Fixture, 85)
+        assert (postponed.event, postponed.kickoff_time) == (None, None)
+
+
+def test_finished_fixture_scores_are_updated(engine, bootstrap):
+    run(engine, bootstrap)
+    bootstrap["fixtures"][0].update(started=True, team_h_score=3, team_a_score=3)
+    run(engine, bootstrap)
+    with Session(engine) as session:
+        fixture = session.get(Fixture, 91)
+        assert (fixture.started, fixture.finished) == (True, False)
+
+    bootstrap["fixtures"][0]["finished"] = True
+    run(engine, bootstrap)
+    with Session(engine) as session:
+        fixture = session.get(Fixture, 91)
+        assert (fixture.finished, fixture.team_h_score, fixture.team_a_score) == (True, 3, 3)
+
+
 # --- failures --------------------------------------------------------------
+
+def test_failed_fixtures_fetch_writes_nothing(engine, bootstrap):
+    def fetch_fixtures():
+        raise requests.exceptions.Timeout("fixtures timed out")
+
+    assert job.sync_bootstrap(
+        engine, fetch=lambda: bootstrap, fetch_fixtures_list=fetch_fixtures
+    ) is False
+
+    assert count(engine, Team) == 0
+    assert sync_runs(engine)[0].error == "fixtures timed out"
+
+
+def test_fixture_with_unknown_team_rolls_back_everything(engine, bootstrap):
+    bootstrap["fixtures"][0]["team_a"] = 99
+
+    assert run(engine, bootstrap) is False
+    assert count(engine, Element) == 0
+    assert "foreign key" in sync_runs(engine)[0].error
+
 
 def test_failed_fetch_writes_nothing_and_is_recorded(engine, caplog):
     def fetch():

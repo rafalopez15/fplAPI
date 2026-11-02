@@ -8,8 +8,9 @@ from sqlalchemy import select
 from src.db.models import Event
 from src.models.element import ElementResponse
 from src.models.event import EventResponse
+from src.models.fixture import FixtureResponse
 from src.models.team import TeamResponse
-from src.services import elements, events, teams
+from src.services import elements, events, fixtures, teams
 from tests.conftest import make_element, make_event
 
 
@@ -127,3 +128,25 @@ def test_get_team_by_name_not_found(session):
 
 def test_get_team_by_name_is_case_sensitive(session):
     assert teams.get_team_by_name(session, "arsenal") is None
+
+
+# --- fixtures -------------------------------------------------------------
+
+def test_get_fixtures(session):
+    result = fixtures.get_fixtures(session)
+    assert all(isinstance(f, FixtureResponse) for f in result)
+    assert [f.id for f in result] == [71, 95, 91, 85]
+
+
+def test_get_fixtures_upcoming(session):
+    assert [f.id for f in fixtures.get_fixtures(session, finished=False)] == [95, 91, 85]
+
+
+def test_get_fixtures_not_started(session):
+    assert [f.id for f in fixtures.get_fixtures(session, started=False)] == [91, 85]
+
+
+def test_get_fixtures_finished(session):
+    [fixture] = fixtures.get_fixtures(session, finished=True)
+    assert (fixture.id, fixture.team_h_score, fixture.team_a_score) == (71, 2, 1)
+    assert fixture.kickoff_time == datetime(2026, 10, 25, 15, tzinfo=timezone.utc)
