@@ -28,6 +28,7 @@ pip install -r requirements-dev.txt  # app, test and lint dependencies
 cp .env.example .env                 # first-time setup
 fastapi dev main.py                  # run locally with reload
 python -m src.jobs.sync_bootstrap    # sync bootstrap-static into the database in DATABASE_URL
+docker build -t fplapi:local . && docker run --rm -p 8000:8000 --env-file .env fplapi:local
 python -m pytest                     # tests + coverage report (fails under 95%)
 pylint $(git ls-files '*.py')        # lint, same as CI (config in .pylintrc)
 alembic upgrade head                 # apply database migrations (uses DATABASE_URL)
@@ -58,6 +59,9 @@ src/
     database.py          Engine, session dependencies (DataSession), sync state, health checks
     fpl_client.py        fetch_bootstrap_static(), used only by the sync job
 tests/                   pytest suite, one file per layer (test_db.py: schema and migrations)
+vercel.json              Vercel settings: function region (cle1)
+.python-version          Python version for Vercel (3.13)
+Dockerfile               Image for running the API locally (Vercel doesn't use it)
 ```
 
 **Request flow:** router → service → SQLAlchemy query on Postgres → Pydantic response model. The API never calls FPL.
@@ -72,13 +76,14 @@ tests/                   pytest suite, one file per layer (test_db.py: schema an
 
 ### Configuration
 - All URLs and tunables live in `.env`, are read in `src/util/config.py`, and are imported as constants. Never hardcode URLs.
-- Required variables (`FPL_BASE_URL`, `FPL_BOOTSTRAP_STATIC_PATH`) go through `_get_env()`, which raises at import time if one is missing so the app fails fast. Optional ones, like `FPL_REQUEST_TIMEOUT` (default 10s), use `os.getenv` with a default.
+- Required variables (`FPL_BASE_URL`, `FPL_BOOTSTRAP_STATIC_PATH`, `DATABASE_URL`) go through `_get_env()`, which strips surrounding whitespace and raises at import time if one is missing or empty, so the app fails fast. Optional ones, like `FPL_REQUEST_TIMEOUT` (default 10s), use `os.getenv` with a default.
 - Endpoint URLs are built as base URL + path. To add an endpoint, add an `FPL_..._PATH` variable to `.env` and `.env.example`, then a constant in `config.py`.
 - `.env` is gitignored; `.env.example` is committed and must stay in sync with it.
 
 ### Database
 - Postgres on Supabase, accessed with SQLAlchemy (sync engine, psycopg 3 driver) and migrated with Alembic.
 - `DATABASE_URL` (required) is the Supabase **session pooler** URI with the scheme changed to `postgresql+psycopg://` and `?sslmode=require` added. The session pooler works over IPv4 and supports prepared statements; the direct connection is IPv6-only. `DATABASE_CONNECT_TIMEOUT` (default 5s) is optional.
+- **Connection pool:** `DATABASE_POOL_SIZE` (default 3) and `DATABASE_MAX_OVERFLOW` (default 2). Keep them small: every Vercel instance has its own pool, and Supabase's free pooler allows only a few connections in total.
 - Never print or log `DATABASE_URL`: it contains the password.
 - `migrations/env.py` reads the URL from `config.py`, never from `alembic.ini`, and escapes `%` for configparser. If a URL is already set (as the tests do), it keeps that one.
 - **Schema** (design in the FPL-7 spike's "Spike outcome" comment in Linear): `teams`, `element_types`, `elements`, `events`, `player_fixture_history` (one row per player per fixture, from `/element-summary/{id}/`) and `sync_runs`.
@@ -106,6 +111,13 @@ Use these status codes consistently:
 
 ### Logging
 - Use `logging.getLogger(__name__)` with `%s` placeholders, e.g. `logger.info("msg: %s", value)`. Never pass extra arguments without a placeholder: pytest's log capture raises on that.
+
+### Hosting
+- Production runs on **Vercel** (Hobby plan: personal, non-commercial use only), decided in the FPL-25 spike. Vercel's zero-config FastAPI support serves the `app` in `main.py`; there's no Vercel-specific code.
+- `vercel.json` pins the region to `cle1` (Cleveland, AWS us-east-2, next to Supabase), and `.python-version` pins Python 3.13. Keep that file in step with CI's Python.
+- Secrets live in Vercel's environment variables (`DATABASE_URL` marked Sensitive) plus the two FPL settings `config.py` requires. Pushes to `main` deploy to production; PRs get preview URLs.
+- Instances scale to zero, so the first request after idle has a cold start of a second or two. An always-warm instance needs Vercel Pro.
+- The `Dockerfile` (`python:3.13-slim`, runtime dependencies only, non-root) is for local runs and a future move to a container host such as Cloud Run, the fallback if the app goes commercial. Vercel doesn't use it. `.dockerignore` keeps `.env`, `env/`, tests and migrations out of the image; use `**/` patterns so they match in subfolders.
 
 ## Testing
 

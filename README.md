@@ -42,6 +42,8 @@ alembic upgrade head           # create or update the database schema
 | `FPL_REQUEST_TIMEOUT` | No | Seconds before an FPL request times out (default 10) |
 | `DATABASE_URL` | Yes | Supabase connection string (see below) |
 | `DATABASE_CONNECT_TIMEOUT` | No | Seconds before a database connection attempt times out (default 5) |
+| `DATABASE_POOL_SIZE` | No | Database connections each process keeps open (default 3) |
+| `DATABASE_MAX_OVERFLOW` | No | Extra connections allowed under load (default 2) |
 | `TEST_DATABASE_URL` | For tests | Local Postgres used by the test suite (see Tests and linting) |
 
 The app won't start if a required variable is missing.
@@ -107,6 +109,42 @@ fastapi dev main.py
 The API runs at `http://127.0.0.1:8000`, with interactive docs at `/docs`. Endpoints are under `/api`, e.g. `/api/elements`. The server reloads when code changes.
 
 The API serves FPL data from the database in `DATABASE_URL` and never calls FPL itself. Until the first sync succeeds, data endpoints return 503. To sync straight away instead of waiting for the hourly job, run `python -m src.jobs.sync_bootstrap`. `/healthcheck` shows when data was last synced (`last_sync`).
+
+## 🐳 Running in Docker
+The `Dockerfile` builds an image with only the API and its runtime dependencies. Production runs on Vercel and doesn't use it; it's for running the API locally the way a container host would.
+
+```bash
+docker build -t fplapi:local .
+docker run --rm -p 8000:8000 --env-file .env fplapi:local
+```
+
+This serves the API at `http://127.0.0.1:8000`, reading the database in your `.env`, which is Supabase. To use the local test database instead, override `DATABASE_URL`. From inside a container, your Mac is `host.docker.internal`:
+
+```bash
+docker run --rm -p 8000:8000 --env-file .env \
+  -e DATABASE_URL=postgresql+psycopg://fpl:fpl@host.docker.internal:5433/fpl_test fplapi:local
+```
+
+The test database is emptied by every test run, so sync it first: `DATABASE_URL=<test database URL> python -m src.jobs.sync_bootstrap`.
+
+## 🚀 Deployment (Vercel)
+The API is deployed to [Vercel](https://vercel.com) on the free Hobby plan, which is for personal, non-commercial use. Vercel detects FastAPI and serves the `app` in `main.py` as one function. Pushes to `main` deploy to production; every PR gets a preview URL.
+
+The repo pins two things:
+- `vercel.json` runs the function in `cle1` (Cleveland, AWS us-east-2), the same region as the Supabase database.
+- `.python-version` pins Python 3.13, the same as CI and the Docker image. Vercel defaults to 3.12.
+
+In the Vercel project, under **Settings → Environment Variables**, set:
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | The same session pooler URL as in `.env`. Mark it **Sensitive**. |
+| `FPL_BASE_URL` | `https://fantasy.premierleague.com/api` |
+| `FPL_BOOTSTRAP_STATIC_PATH` | `/bootstrap-static/` |
+
+The API doesn't call FPL, but `config.py` requires the two FPL settings at startup. After a deploy, `https://<project>.vercel.app/healthcheck` should return `"database": "ok"` with a recent `last_sync`.
+
+The first request after a few idle minutes takes a second or two while Vercel starts an instance. Migrations and the hourly sync still run from GitHub Actions, not Vercel.
 
 ## ✅ Tests and linting
 The database tests run against a local Postgres in Docker, never Supabase. On macOS, [Colima](https://github.com/abiosoft/colima) is a lightweight way to run Docker:
