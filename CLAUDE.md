@@ -49,6 +49,7 @@ src/
     events.py            /events, /events/{id}, /events/current-event/
     teams.py             /teams, /teams/{team_name}
     fixtures.py          /fixtures (optional ?finished= and ?started= filters)
+    managers.py          /managers/{id}, /managers/{id}/transfers, /managers/{id}/history (live from FPL)
   services/              Business logic: queries that return Pydantic models
   models/                Pydantic response models (ElementResponse, EventResponse, TeamResponse)
   db/
@@ -65,7 +66,9 @@ vercel.json              Vercel settings: function region (cle1)
 Dockerfile               Image for running the API locally (Vercel doesn't use it)
 ```
 
-**Request flow:** router → service → SQLAlchemy query on Postgres → Pydantic response model. The API never calls FPL.
+**Request flow:** router → service → SQLAlchemy query on Postgres → Pydantic response model.
+
+The one exception is `/managers/...`: manager data is per user and can't be synced ahead of time, so those services call FPL live through `fpl_client` (router → service → `fetch_manager*()` → FPL). Vercel's CDN caches their successful responses (see Fetching), and they don't touch the database, so they work even when the sync is behind.
 
 - **Routers** handle HTTP concerns only: path parameters, status codes, `HTTPException`. Endpoints are plain `def`, so FastAPI runs them in its thread pool and the blocking database calls don't stall the event loop. Each takes a `session: DataSession` and passes it to a service.
 - **`DataSession`** (`src/util/database.py`) is the request's session from `get_session`, after `get_data_session` checks that a bootstrap sync has succeeded. Tests override `get_session`.
@@ -99,8 +102,10 @@ Dockerfile               Image for running the API locally (Vercel doesn't use i
 - `/healthcheck` returns `{"status": "ok", "database": "ok" | "unavailable", "last_sync": <ISO timestamp> | null}`, always with 200, so a database outage doesn't make a host restart the app.
 
 ### Fetching
-- Only the sync job calls FPL, through `fetch_bootstrap_static()` in `src/util/fpl_client.py`, with a timeout.
-- It raises on network errors, error statuses (`raise_for_status()`) and invalid JSON. The job catches that, records the failed run, and leaves the previous data in place.
+- All FPL calls go through `src/util/fpl_client.py`, with a timeout and a descriptive `User-Agent` (`HEADERS`).
+- **Sync job:** `fetch_bootstrap_static()` and `fetch_fixtures()` use `FPL_REQUEST_TIMEOUT` (default 10s) and raise `requests` errors on network errors, error statuses (`raise_for_status()`) and invalid JSON. The job catches them, records the failed run, and leaves the previous data in place.
+- **Manager endpoints:** `fetch_manager()`, `fetch_manager_transfers()` and `fetch_manager_history()` use the shorter `FPL_PROXY_TIMEOUT` (default 5s), because someone is waiting. They raise `FplNotFoundError` for FPL's 404 and `FplUnavailableError` for everything else, including timeouts, 429/5xx and FPL's HTML "the game is being updated" page.
+- **Caching:** the manager routes set `Cache-Control: s-maxage=..., stale-while-revalidate=...` on successful responses, so Vercel's CDN serves repeats without calling FPL: 60s for the manager and transfers, 300s for history. Errors send `no-store`. An in-memory cache would be useless on Vercel, whose instances don't share memory and scale to zero.
 
 ### Error responses
 Use these status codes consistently:
@@ -108,7 +113,8 @@ Use these status codes consistently:
 | Situation | Status |
 |---|---|
 | No bootstrap sync has succeeded yet (`FplDataUnavailableError`), or the database is unreachable (`OperationalError`) | **503** `"FPL data is currently unavailable"`, from the handlers in `main.py` |
-| Single-item lookup or filter finds nothing | **404** with a resource-specific detail, e.g. `"Team not found"` |
+| A live call to FPL fails (`FplUnavailableError`) | **503** `"FPL is unavailable right now"`, with `Cache-Control: no-store` |
+| Single-item lookup or filter finds nothing | **404** with a resource-specific detail, e.g. `"Team not found"`. Unknown FPL managers: `"Manager not found"`, with `no-store` |
 | Collection endpoint with no items | **200** with `[]` |
 | Invalid path parameter type | **422** (FastAPI default) |
 

@@ -154,6 +154,54 @@ def make_fixture(**overrides):
     return fixture
 
 
+def make_fpl_manager(**overrides):
+    """FPL's entry/{id}/ response, including fields ManagerResponse leaves out."""
+    manager = {
+        "id": 1, "name": "Solio Moose", "player_first_name": "Chris",
+        "player_last_name": "Musson", "current_event": 9, "started_event": 1,
+        "favourite_team": 14, "player_region_name": "England",
+        "summary_overall_points": 563, "summary_overall_rank": 1571477,
+        "summary_event_points": 55, "summary_event_rank": 1972509,
+        "last_deadline_bank": 21, "last_deadline_value": 1022,
+        "last_deadline_total_transfers": 6,
+        # Left out of the response.
+        "joined_time": "2026-07-18T09:12:45.123456Z", "player_region_id": 241,
+        "leagues": {"classic": [{"id": 314, "name": "Overall"}], "h2h": [], "cup": {}},
+        "kit": None, "club_badge_src": None, "entered_events": [1, 2, 3],
+    }
+    manager.update(overrides)
+    return manager
+
+
+def make_fpl_transfers():
+    """FPL's entry/{id}/transfers/ response: newest first, with fractional seconds."""
+    return [
+        {"element_in": 566, "element_in_cost": 50, "element_out": 114,
+         "element_out_cost": 45, "entry": 1, "event": 9,
+         "time": "2026-10-31T10:08:30.794468Z"},
+        {"element_in": 2, "element_in_cost": 145, "element_out": 351,
+         "element_out_cost": 120, "entry": 1, "event": 4,
+         "time": "2026-09-12T18:01:02.000001Z"},
+    ]
+
+
+def make_fpl_history():
+    """FPL's entry/{id}/history/ response, including fields HistoryResponse leaves out."""
+    gameweek = {
+        "event": 1, "points": 72, "total_points": 72, "rank": 1203411,
+        "overall_rank": 1203411, "bank": 5, "value": 1000, "event_transfers": 0,
+        "event_transfers_cost": 0, "points_on_bench": 8,
+        # Left out of the response.
+        "rank_sort": 1203500, "percentile_rank": 15, "overall_rank_percentage": 12,
+    }
+    return {
+        "current": [gameweek, {**gameweek, "event": 2, "points": 51, "total_points": 123}],
+        "chips": [{"name": "bboost", "time": "2026-08-28T17:25:01.123184Z", "event": 2}],
+        "past": [{"season_name": "2024/25", "total_points": 2301, "rank": 150234,
+                  "rank_percentage": "2"}],
+    }
+
+
 SEEDED_FIXTURES = [
     # Listed out of kickoff order, the way FPL's list can be.
     make_fixture(),  # 91: gameweek 10, 7 Nov

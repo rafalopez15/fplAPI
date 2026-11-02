@@ -40,6 +40,8 @@ alembic upgrade head           # create or update the database schema
 | `FPL_BASE_URL` | Yes | Base URL of the official FPL API |
 | `FPL_BOOTSTRAP_STATIC_PATH` | Yes | Path of FPL's `bootstrap-static` endpoint |
 | `FPL_FIXTURES_PATH` | No | Path of FPL's fixtures endpoint (default `/fixtures/`) |
+| `FPL_ENTRY_PATH` | No | Path of FPL's manager endpoints (default `/entry/`) |
+| `FPL_PROXY_TIMEOUT` | No | Seconds before a live call to FPL from the manager endpoints times out (default 5) |
 | `FPL_REQUEST_TIMEOUT` | No | Seconds before an FPL request times out (default 10) |
 | `DATABASE_URL` | Yes | Supabase connection string (see below) |
 | `DATABASE_CONNECT_TIMEOUT` | No | Seconds before a database connection attempt times out (default 5) |

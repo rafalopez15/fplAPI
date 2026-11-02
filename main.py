@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
 from src.util import database
 from src.util.database import FplDataUnavailableError
+from src.util.fpl_client import FplUnavailableError
 from src.routers import routers
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,20 @@ async def database_unavailable_handler(
     """Return 503 when the database can't be reached."""
     logger.warning("Database unavailable: %s", exc.orig)
     return JSONResponse(status_code=503, content=UNAVAILABLE)
+
+
+@app.exception_handler(FplUnavailableError)
+async def fpl_unavailable_handler(_request: Request, _exc: FplUnavailableError) -> JSONResponse:
+    """Return 503 when a live call to FPL fails. Never cached, so the next request retries.
+
+    The detail differs from the sync's "FPL data is currently unavailable", so the
+    logs and the app can tell the two apart.
+    """
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "FPL is unavailable right now"},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/healthcheck", include_in_schema=False)

@@ -23,7 +23,11 @@ FPL_BOOTSTRAP_STATIC_URL = FPL_BASE_URL + _get_env("FPL_BOOTSTRAP_STATIC_PATH")
 # Optional with a default: only the sync job calls FPL, and a new required
 # setting would stop the deployed API from starting until it was added there too.
 FPL_FIXTURES_URL = FPL_BASE_URL + os.getenv("FPL_FIXTURES_PATH", "/fixtures/")
+# Manager endpoints: FPL_ENTRY_URL + "{id}/", "{id}/transfers/" or "{id}/history/".
+FPL_ENTRY_URL = FPL_BASE_URL + os.getenv("FPL_ENTRY_PATH", "/entry/")
 FPL_REQUEST_TIMEOUT = float(os.getenv("FPL_REQUEST_TIMEOUT", "10"))
+# Shorter than the sync's timeout: someone in the app is waiting on these calls.
+FPL_PROXY_TIMEOUT = float(os.getenv("FPL_PROXY_TIMEOUT", "5"))
 DATABASE_URL = _get_env("DATABASE_URL")
 DATABASE_CONNECT_TIMEOUT = int(os.getenv("DATABASE_CONNECT_TIMEOUT", "5"))
 # Connections kept open per process, plus extra ones allowed under load. Small,

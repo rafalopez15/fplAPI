@@ -128,3 +128,25 @@ def test_fixtures_url_from_env(monkeypatch):
     monkeypatch.setenv("FPL_BASE_URL", "https://example.com/api")
     monkeypatch.setenv("FPL_FIXTURES_PATH", "/other/")
     assert load_fresh_config(monkeypatch).FPL_FIXTURES_URL == "https://example.com/api/other/"
+
+
+def test_entry_url_defaults_to_fpl_path(monkeypatch):
+    monkeypatch.setenv("FPL_BASE_URL", "https://example.com/api")
+    monkeypatch.delenv("FPL_ENTRY_PATH", raising=False)
+    assert load_fresh_config(monkeypatch).FPL_ENTRY_URL == "https://example.com/api/entry/"
+
+
+def test_entry_url_from_env(monkeypatch):
+    monkeypatch.setenv("FPL_BASE_URL", "https://example.com/api")
+    monkeypatch.setenv("FPL_ENTRY_PATH", "/managers/")
+    assert load_fresh_config(monkeypatch).FPL_ENTRY_URL == "https://example.com/api/managers/"
+
+
+def test_proxy_timeout_defaults_to_5(monkeypatch):
+    monkeypatch.delenv("FPL_PROXY_TIMEOUT", raising=False)
+    assert load_fresh_config(monkeypatch).FPL_PROXY_TIMEOUT == 5.0
+
+
+def test_proxy_timeout_from_env(monkeypatch):
+    monkeypatch.setenv("FPL_PROXY_TIMEOUT", "2.5")
+    assert load_fresh_config(monkeypatch).FPL_PROXY_TIMEOUT == 2.5
