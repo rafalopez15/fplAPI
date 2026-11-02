@@ -39,6 +39,7 @@ alembic upgrade head           # create or update the database schema
 |---|---|---|
 | `FPL_BASE_URL` | Yes | Base URL of the official FPL API |
 | `FPL_BOOTSTRAP_STATIC_PATH` | Yes | Path of FPL's `bootstrap-static` endpoint |
+| `FPL_FIXTURES_PATH` | No | Path of FPL's fixtures endpoint (default `/fixtures/`) |
 | `FPL_REQUEST_TIMEOUT` | No | Seconds before an FPL request times out (default 10) |
 | `DATABASE_URL` | Yes | Supabase connection string (see below) |
 | `DATABASE_CONNECT_TIMEOUT` | No | Seconds before a database connection attempt times out (default 5) |
@@ -88,7 +89,7 @@ To change the schema:
 Don't edit a migration that has already been applied: add a new one instead.
 
 ## ⏱️ Scheduled jobs (GitHub Actions)
-`src/jobs/sync_bootstrap.py` copies FPL's `bootstrap-static` (teams, positions, players and gameweeks) into the database. GitHub Actions runs it every hour, and each run is recorded in the `sync_runs` table. A failed run leaves the previous data in place.
+`src/jobs/sync_bootstrap.py` copies FPL's `bootstrap-static` (teams, positions, players and gameweeks) and the season's fixtures into the database. GitHub Actions runs it every hour, and each run is recorded in the `sync_runs` table. A failed run leaves the previous data in place.
 
 When a change to `migrations/`, `src/db/` or `alembic.ini` reaches `main`, the **Migrate database** workflow applies it to Supabase with `alembic upgrade head`.
 
