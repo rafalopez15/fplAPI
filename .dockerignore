@@ -1,0 +1,15 @@
+# Keep secrets, the local venv and build clutter out of the build context.
+.env
+env/
+.git/
+.github/
+.vscode/
+tests/
+migrations/
+**/__pycache__/
+**/*.pyc
+.coverage
+.pytest_cache/
+test-results.xml
+pylint-report.json
+**/.DS_Store
