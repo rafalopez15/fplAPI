@@ -139,7 +139,10 @@ Use these status codes consistently:
 ## Environment
 
 - Python **3.10+**. 3.9 is end-of-life, and GitHub's Ubuntu 26.04 runners don't provide it.
-- CI runs two workflows on every push, both on Python 3.13: `.github/workflows/pylint.yml` lints, and `.github/workflows/tests.yml` runs pytest with the 95% coverage gate against a Postgres 17 service container. Each writes a summary table to the run page: test pass rate and failures via `.github/scripts/summarize_tests.py`, and pylint score and issues via `.github/scripts/summarize_pylint.py`.
+- `.github/workflows/ci.yml` runs on pull requests and on pushes to `main` (other branch pushes don't run CI until a PR is opened), on Python 3.13. A newer push to the same PR cancels the run in progress. Three jobs:
+  - **Pylint** lints, and **Tests** runs pytest with the 95% coverage gate against a Postgres 17 service container. They show as separate checks.
+  - Each writes a summary table to the run page and to a Markdown file uploaded as an artifact: test pass rate and failures via `.github/scripts/summarize_tests.py`, pylint score and issues via `.github/scripts/summarize_pylint.py`. Both write through `summary_output.write_markdown()`.
+  - **PR comment** (pull requests only, after both jobs, even if they fail) posts one comment with both summaries and edits it on later pushes. It finds the comment by the hidden `<!-- ci-report -->` marker, and is the only job with `pull-requests: write`.
 - Two more workflows use the Supabase database through the `DATABASE_URL` repository secret, and share the `database` concurrency group so they never overlap:
   - `sync-bootstrap.yml` runs the bootstrap sync hourly (cron `17 * * * *`) and on manual dispatch.
   - `migrate.yml` runs `alembic upgrade head` on pushes to `main` that touch `migrations/`, `src/db/` or `alembic.ini`, and on manual dispatch. Migrations reach Supabase this way, not from a laptop.
