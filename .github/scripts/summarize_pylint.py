@@ -1,7 +1,15 @@
-"""Summarize a pylint json2 report in the job log and GitHub step summary."""
+"""Summarize a pylint json2 report in the job log and GitHub step summary.
+
+    python summarize_pylint.py pylint-report.json [pylint-summary.md]
+
+The optional second argument also writes the Markdown to a file, which the CI
+workflow posts as a PR comment.
+"""
 import json
 import os
 import sys
+
+from summary_output import write_markdown
 
 CATEGORIES = ["fatal", "error", "warning", "refactor", "convention", "info"]
 
@@ -27,8 +35,11 @@ def to_markdown(status, score, counts, messages):
 
 def main():
     report_path = sys.argv[1] if len(sys.argv) > 1 else "pylint-report.json"
+    markdown_path = sys.argv[2] if len(sys.argv) > 2 else None
     if not os.path.exists(report_path):
-        print(f"No pylint report found at {report_path}; pylint likely crashed.")
+        message = f"No pylint report found at {report_path}; pylint likely crashed."
+        print(message)
+        write_markdown(f"## ⚠️ No pylint results\n\n{message}\n", markdown_path)
         return
 
     with open(report_path, encoding="utf-8") as report:
@@ -44,10 +55,7 @@ def main():
     for msg in messages:
         print(f"  {msg['path']}:{msg['line']} {msg['messageId']} {msg['symbol']}: {msg['message']}")
 
-    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary_path:
-        with open(summary_path, "a", encoding="utf-8") as summary:
-            summary.write(to_markdown(status, score, counts, messages))
+    write_markdown(to_markdown(status, score, counts, messages), markdown_path)
 
 
 if __name__ == "__main__":
