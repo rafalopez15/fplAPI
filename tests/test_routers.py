@@ -9,6 +9,7 @@ from main import app
 from src.db.models import Element, Event, Fixture, SyncRun, Team
 from src.models.element import ElementResponse
 from src.models.event import EventResponse
+from src.models.fixture import FixtureResponse
 from src.models.team import TeamResponse
 from src.util import database
 
@@ -190,6 +191,61 @@ def test_get_team_by_name_not_found(client):
     assert response.json() == {"detail": "Team not found"}
 
 
+# --- fixtures -------------------------------------------------------------
+
+def test_get_fixtures_in_kickoff_order_with_postponed_last(client):
+    response = client.get("/api/fixtures")
+    assert response.status_code == 200
+    assert [f["id"] for f in response.json()] == [71, 95, 91, 85]
+
+
+def test_fixture_shape(client):
+    body = client.get("/api/fixtures").json()
+    assert body[0].keys() == FixtureResponse.model_fields.keys()
+    assert body[0] == {
+        "id": 71, "event": 8, "team_h": 1, "team_a": 2,
+        "team_h_difficulty": 5, "team_a_difficulty": 4,
+        "kickoff_time": "2026-10-25T15:00:00Z", "started": True, "finished": True,
+        "team_h_score": 2, "team_a_score": 1,
+    }
+
+
+def test_postponed_fixture_has_null_event_and_kickoff(client):
+    postponed = client.get("/api/fixtures").json()[-1]
+    assert postponed["id"] == 85
+    assert (postponed["event"], postponed["kickoff_time"]) == (None, None)
+    assert (postponed["team_h_score"], postponed["team_a_score"]) == (None, None)
+
+
+@pytest.mark.parametrize(
+    "query, ids",
+    [
+        ("finished=false", [95, 91, 85]),  # includes 95: played, not yet confirmed
+        ("finished=true", [71]),
+        ("finished=0", [95, 91, 85]),
+        ("started=false", [91, 85]),  # still to be played
+        ("started=true", [71, 95]),
+        ("started=true&finished=false", [95]),
+    ],
+)
+def test_get_fixtures_filtered(client, query, ids):
+    response = client.get(f"/api/fixtures?{query}")
+    assert response.status_code == 200
+    assert [f["id"] for f in response.json()] == ids
+
+
+@pytest.mark.parametrize("query", ["finished=maybe", "started=soon"])
+def test_get_fixtures_invalid_filter(client, query):
+    assert client.get(f"/api/fixtures?{query}").status_code == 422
+
+
+def test_get_fixtures_empty(client, seeded_session):
+    seeded_session.execute(delete(Fixture))
+    response = client.get("/api/fixtures")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
 # --- data unavailable -----------------------------------------------------
 
 DATA_PATHS = [
@@ -201,6 +257,7 @@ DATA_PATHS = [
     "/api/events/current-event/",
     "/api/teams",
     "/api/teams/Arsenal",
+    "/api/fixtures",
 ]
 
 
