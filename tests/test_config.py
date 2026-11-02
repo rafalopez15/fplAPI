@@ -28,6 +28,17 @@ def test_get_env_raises_when_missing(monkeypatch):
         config._get_env("SOME_KEY")
 
 
+def test_get_env_strips_whitespace(monkeypatch):
+    monkeypatch.setenv("SOME_KEY", " some-value\n")
+    assert config._get_env("SOME_KEY") == "some-value"
+
+
+def test_get_env_raises_when_only_whitespace(monkeypatch):
+    monkeypatch.setenv("SOME_KEY", "  ")
+    with pytest.raises(RuntimeError, match="SOME_KEY"):
+        config._get_env("SOME_KEY")
+
+
 def test_get_env_raises_when_empty(monkeypatch):
     monkeypatch.setenv("SOME_KEY", "")
     with pytest.raises(RuntimeError, match="SOME_KEY"):

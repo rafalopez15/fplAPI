@@ -8,9 +8,11 @@ def _get_env(key: str) -> str:
     """Return a required environment variable.
 
     Raises RuntimeError if it's unset or empty, so a missing .env entry stops the
-    app at import time instead of turning into a broken URL later.
+    app at import time instead of turning into a broken URL later. Surrounding
+    whitespace is stripped: Docker's --env-file and pasted secrets keep it, unlike
+    python-dotenv.
     """
-    value = os.getenv(key)
+    value = (os.getenv(key) or "").strip()
     if not value:
         raise RuntimeError(f"Missing required environment variable: {key}")
     return value
