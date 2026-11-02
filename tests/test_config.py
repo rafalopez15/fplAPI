@@ -102,3 +102,17 @@ def test_database_connect_timeout_from_env(monkeypatch):
 def test_database_connect_timeout_defaults_to_5(monkeypatch):
     monkeypatch.delenv("DATABASE_CONNECT_TIMEOUT", raising=False)
     assert load_fresh_config(monkeypatch).DATABASE_CONNECT_TIMEOUT == 5
+
+
+@pytest.mark.parametrize(
+    "name, default", [("DATABASE_POOL_SIZE", 3), ("DATABASE_MAX_OVERFLOW", 2)]
+)
+def test_pool_settings_default(monkeypatch, name, default):
+    monkeypatch.delenv(name, raising=False)
+    assert getattr(load_fresh_config(monkeypatch), name) == default
+
+
+@pytest.mark.parametrize("name", ["DATABASE_POOL_SIZE", "DATABASE_MAX_OVERFLOW"])
+def test_pool_settings_from_env(monkeypatch, name):
+    monkeypatch.setenv(name, "7")
+    assert getattr(load_fresh_config(monkeypatch), name) == 7

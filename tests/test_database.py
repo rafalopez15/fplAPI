@@ -14,6 +14,10 @@ def test_engine_uses_database_url():
     assert url == config.DATABASE_URL
 
 
+def test_engine_uses_pool_size():
+    assert database.engine.pool.size() == config.DATABASE_POOL_SIZE
+
+
 def test_database_reachable(monkeypatch):
     connection = MagicMock()
     monkeypatch.setattr(database.engine, "connect", MagicMock(return_value=connection))

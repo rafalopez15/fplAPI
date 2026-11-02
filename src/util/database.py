@@ -7,7 +7,12 @@ from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from src.db.models import SyncRun
-from src.util.config import DATABASE_CONNECT_TIMEOUT, DATABASE_URL
+from src.util.config import (
+    DATABASE_CONNECT_TIMEOUT,
+    DATABASE_MAX_OVERFLOW,
+    DATABASE_POOL_SIZE,
+    DATABASE_URL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +21,8 @@ logger = logging.getLogger(__name__)
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
+    pool_size=DATABASE_POOL_SIZE,
+    max_overflow=DATABASE_MAX_OVERFLOW,
     connect_args={"connect_timeout": DATABASE_CONNECT_TIMEOUT},
 )
 
