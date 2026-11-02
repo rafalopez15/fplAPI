@@ -116,3 +116,15 @@ def test_pool_settings_default(monkeypatch, name, default):
 def test_pool_settings_from_env(monkeypatch, name):
     monkeypatch.setenv(name, "7")
     assert getattr(load_fresh_config(monkeypatch), name) == 7
+
+
+def test_fixtures_url_defaults_to_fpl_path(monkeypatch):
+    monkeypatch.setenv("FPL_BASE_URL", "https://example.com/api")
+    monkeypatch.delenv("FPL_FIXTURES_PATH", raising=False)
+    assert load_fresh_config(monkeypatch).FPL_FIXTURES_URL == "https://example.com/api/fixtures/"
+
+
+def test_fixtures_url_from_env(monkeypatch):
+    monkeypatch.setenv("FPL_BASE_URL", "https://example.com/api")
+    monkeypatch.setenv("FPL_FIXTURES_PATH", "/other/")
+    assert load_fresh_config(monkeypatch).FPL_FIXTURES_URL == "https://example.com/api/other/"

@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import create_engine, delete
 from sqlalchemy.orm import Session
 from main import app
-from src.db.models import Element, Event, SyncRun, Team
+from src.db.models import Element, Event, Fixture, SyncRun, Team
 from src.models.element import ElementResponse
 from src.models.event import EventResponse
 from src.models.team import TeamResponse
@@ -114,6 +114,7 @@ def test_get_events(client):
 
 
 def test_get_events_empty(client, seeded_session):
+    seeded_session.execute(delete(Fixture))
     seeded_session.execute(delete(Event))
     response = client.get("/api/events")
     assert response.status_code == 200
@@ -169,6 +170,7 @@ def test_get_teams(client):
 
 
 def test_get_teams_empty(client, seeded_session):
+    seeded_session.execute(delete(Fixture))
     seeded_session.execute(delete(Element))
     seeded_session.execute(delete(Team))
     response = client.get("/api/teams")

@@ -1,9 +1,9 @@
-"""Sync FPL's bootstrap-static into Postgres. GitHub Actions runs it hourly.
+"""Sync FPL's bootstrap-static and fixtures into Postgres. GitHub Actions runs it hourly.
 
     python -m src.jobs.sync_bootstrap
 
-Upserts teams, element_types, elements and events in one transaction, so a failed
-run leaves the previous data in place. Unchanged rows aren't rewritten, and rows
+Upserts teams, element_types, elements, events and fixtures in one transaction, so
+a failed run leaves the previous data in place. Unchanged rows aren't rewritten, and rows
 are never deleted: players FPL drops stay for their history. Every run is
 recorded in sync_runs.
 """
@@ -15,18 +15,20 @@ from sqlalchemy import Engine, func, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
-from src.db.models import Base, Element, ElementType, Event, SyncRun, Team
+from src.db.models import Base, Element, ElementType, Event, Fixture, SyncRun, Team
 from src.util import database
-from src.util.fpl_client import fetch_bootstrap_static
+from src.util.fpl_client import fetch_bootstrap_static, fetch_fixtures
 
 logger = logging.getLogger(__name__)
 
-# FPL's collection name and its table, in foreign-key order.
+# FPL's collection name and its table, in foreign-key order. "fixtures" comes
+# from FPL's /fixtures/ endpoint; the rest from bootstrap-static.
 COLLECTIONS = (
     ("teams", Team),
     ("element_types", ElementType),
     ("elements", Element),
     ("events", Event),
+    ("fixtures", Fixture),
 )
 
 # Failures this job records and survives. Anything else is a bug and should crash.
@@ -94,6 +96,7 @@ def describe(error: Exception) -> str:
 def sync_bootstrap(
     engine: Optional[Engine] = None,
     fetch: Callable[[], dict] = fetch_bootstrap_static,
+    fetch_fixtures_list: Callable[[], list] = fetch_fixtures,
 ) -> bool:
     """Run one sync and return whether it succeeded.
 
@@ -108,7 +111,8 @@ def sync_bootstrap(
         run_id = run.id
 
     try:
-        data = fetch()
+        # Both fetches happen before any write, so a failed fetch writes nothing.
+        data = {**fetch(), "fixtures": fetch_fixtures_list()}
         with Session(engine) as session, session.begin():
             for collection, model in COLLECTIONS:
                 rows = [to_row(model, item) for item in data[collection]]
