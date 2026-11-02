@@ -3,14 +3,15 @@ from unittest.mock import Mock
 import pytest
 import requests
 from src.util import fpl_client
-from src.util.config import (
-    FPL_BOOTSTRAP_STATIC_URL,
-    FPL_ENTRY_URL,
-    FPL_FIXTURES_URL,
-    FPL_PROXY_TIMEOUT,
-    FPL_REQUEST_TIMEOUT,
+from src.util.config import FPL_BASE_URL, FPL_PROXY_TIMEOUT, FPL_REQUEST_TIMEOUT
+from src.util.fpl_client import (
+    BOOTSTRAP_STATIC_URL,
+    ENTRY_URL,
+    FIXTURES_URL,
+    HEADERS,
+    FplNotFoundError,
+    FplUnavailableError,
 )
-from src.util.fpl_client import HEADERS, FplNotFoundError, FplUnavailableError
 
 
 def mock_get(monkeypatch, response=None, side_effect=None):
@@ -38,7 +39,7 @@ def test_fetch_bootstrap_static_returns_data(monkeypatch):
 
     assert fpl_client.fetch_bootstrap_static() == {"teams": []}
     get.assert_called_once_with(
-        FPL_BOOTSTRAP_STATIC_URL, timeout=FPL_REQUEST_TIMEOUT, headers=HEADERS
+        BOOTSTRAP_STATIC_URL, timeout=FPL_REQUEST_TIMEOUT, headers=HEADERS
     )
 
 
@@ -69,7 +70,7 @@ def test_fetch_fixtures_returns_list(monkeypatch):
     get = mock_get(monkeypatch, ok_response([{"id": 1}]))
 
     assert fpl_client.fetch_fixtures() == [{"id": 1}]
-    get.assert_called_once_with(FPL_FIXTURES_URL, timeout=FPL_REQUEST_TIMEOUT, headers=HEADERS)
+    get.assert_called_once_with(FIXTURES_URL, timeout=FPL_REQUEST_TIMEOUT, headers=HEADERS)
 
 
 def test_fetch_fixtures_raises_on_error_status(monkeypatch):
@@ -77,6 +78,12 @@ def test_fetch_fixtures_raises_on_error_status(monkeypatch):
 
     with pytest.raises(requests.exceptions.HTTPError):
         fpl_client.fetch_fixtures()
+
+
+def test_fpl_urls_are_built_from_the_base_url():
+    assert BOOTSTRAP_STATIC_URL == f"{FPL_BASE_URL}/bootstrap-static/"
+    assert FIXTURES_URL == f"{FPL_BASE_URL}/fixtures/"
+    assert ENTRY_URL == f"{FPL_BASE_URL}/entry/"
 
 
 def test_requests_identify_fplapi():
@@ -97,7 +104,7 @@ def test_manager_fetches_use_the_proxy_timeout(monkeypatch, fetch, path):
     get = mock_get(monkeypatch, ok_response({"ok": True}))
 
     assert fetch(1) == {"ok": True}
-    get.assert_called_once_with(FPL_ENTRY_URL + path, timeout=FPL_PROXY_TIMEOUT, headers=HEADERS)
+    get.assert_called_once_with(ENTRY_URL + path, timeout=FPL_PROXY_TIMEOUT, headers=HEADERS)
 
 
 def test_unknown_manager_raises_not_found(monkeypatch):

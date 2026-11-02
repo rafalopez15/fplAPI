@@ -1,6 +1,7 @@
 # _get_env is private but tested directly.
 # pylint: disable=protected-access
 import importlib.util
+import os
 from unittest.mock import Mock
 
 import pytest
@@ -45,30 +46,35 @@ def test_get_env_raises_when_empty(monkeypatch):
         config._get_env("SOME_KEY")
 
 
-def test_builds_bootstrap_url(monkeypatch):
-    monkeypatch.setenv("FPL_BASE_URL", "https://example.com/api")
-    monkeypatch.setenv("FPL_BOOTSTRAP_STATIC_PATH", "/bootstrap-static/")
-    module = load_fresh_config(monkeypatch)
-    assert module.FPL_BASE_URL == "https://example.com/api"
-    assert module.FPL_BOOTSTRAP_STATIC_URL == "https://example.com/api/bootstrap-static/"
+def test_base_url_defaults_to_fpl(monkeypatch):
+    monkeypatch.delenv("FPL_BASE_URL", raising=False)
+    assert load_fresh_config(monkeypatch).FPL_BASE_URL == "https://fantasy.premierleague.com/api"
+
+
+def test_base_url_from_env(monkeypatch):
+    monkeypatch.setenv("FPL_BASE_URL", "http://localhost:9000/api")
+    assert load_fresh_config(monkeypatch).FPL_BASE_URL == "http://localhost:9000/api"
+
+
+@pytest.mark.parametrize("value", ["", "  "])
+def test_empty_base_url_falls_back_to_fpl(monkeypatch, value):
+    monkeypatch.setenv("FPL_BASE_URL", value)
+    assert load_fresh_config(monkeypatch).FPL_BASE_URL == "https://fantasy.premierleague.com/api"
 
 
 def test_strips_trailing_slash_from_base_url(monkeypatch):
-    monkeypatch.setenv("FPL_BASE_URL", "https://example.com/api/")
-    monkeypatch.setenv("FPL_BOOTSTRAP_STATIC_PATH", "/bootstrap-static/")
-    module = load_fresh_config(monkeypatch)
-    assert module.FPL_BOOTSTRAP_STATIC_URL == "https://example.com/api/bootstrap-static/"
+    monkeypatch.setenv("FPL_BASE_URL", " https://example.com/api/ ")
+    assert load_fresh_config(monkeypatch).FPL_BASE_URL == "https://example.com/api"
 
 
-@pytest.mark.parametrize(
-    "missing", ["FPL_BASE_URL", "FPL_BOOTSTRAP_STATIC_PATH", "DATABASE_URL"]
-)
-def test_import_fails_when_variable_missing(monkeypatch, missing):
-    monkeypatch.setenv("FPL_BASE_URL", "https://example.com/api")
-    monkeypatch.setenv("FPL_BOOTSTRAP_STATIC_PATH", "/bootstrap-static/")
+def test_database_url_is_the_only_required_setting(monkeypatch):
+    for name in [n for n in os.environ if n.startswith("FPL_")]:
+        monkeypatch.delenv(name)
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost/db")
-    monkeypatch.delenv(missing)
-    with pytest.raises(RuntimeError, match=missing):
+    load_fresh_config(monkeypatch)  # doesn't raise
+
+    monkeypatch.delenv("DATABASE_URL")
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
         load_fresh_config(monkeypatch)
 
 
@@ -116,30 +122,6 @@ def test_pool_settings_default(monkeypatch, name, default):
 def test_pool_settings_from_env(monkeypatch, name):
     monkeypatch.setenv(name, "7")
     assert getattr(load_fresh_config(monkeypatch), name) == 7
-
-
-def test_fixtures_url_defaults_to_fpl_path(monkeypatch):
-    monkeypatch.setenv("FPL_BASE_URL", "https://example.com/api")
-    monkeypatch.delenv("FPL_FIXTURES_PATH", raising=False)
-    assert load_fresh_config(monkeypatch).FPL_FIXTURES_URL == "https://example.com/api/fixtures/"
-
-
-def test_fixtures_url_from_env(monkeypatch):
-    monkeypatch.setenv("FPL_BASE_URL", "https://example.com/api")
-    monkeypatch.setenv("FPL_FIXTURES_PATH", "/other/")
-    assert load_fresh_config(monkeypatch).FPL_FIXTURES_URL == "https://example.com/api/other/"
-
-
-def test_entry_url_defaults_to_fpl_path(monkeypatch):
-    monkeypatch.setenv("FPL_BASE_URL", "https://example.com/api")
-    monkeypatch.delenv("FPL_ENTRY_PATH", raising=False)
-    assert load_fresh_config(monkeypatch).FPL_ENTRY_URL == "https://example.com/api/entry/"
-
-
-def test_entry_url_from_env(monkeypatch):
-    monkeypatch.setenv("FPL_BASE_URL", "https://example.com/api")
-    monkeypatch.setenv("FPL_ENTRY_PATH", "/managers/")
-    assert load_fresh_config(monkeypatch).FPL_ENTRY_URL == "https://example.com/api/managers/"
 
 
 def test_proxy_timeout_defaults_to_5(monkeypatch):
