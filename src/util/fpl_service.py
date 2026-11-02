@@ -10,6 +10,19 @@ class FplDataUnavailableError(Exception):
     """Raised when FPL data is read before it has been fetched successfully."""
 
 
+def fetch_bootstrap_static() -> dict:
+    """Fetch bootstrap-static from FPL and return the parsed JSON.
+
+    Blocking. Raises requests.exceptions.RequestException on network errors,
+    timeouts, error statuses and invalid JSON.
+    """
+    response = requests.get(FPL_BOOTSTRAP_STATIC_URL, timeout=FPL_REQUEST_TIMEOUT)
+    response.raise_for_status()
+    data = response.json()
+    logger.info("FPL data response: %s", response.status_code)
+    return data
+
+
 class FplService:
     """Process-wide cache of FPL's bootstrap-static response.
 
@@ -43,11 +56,6 @@ class FplService:
         """
         try:
             # requests is blocking, so run it in a worker thread to keep the event loop free.
-            response = await asyncio.to_thread(
-                requests.get, FPL_BOOTSTRAP_STATIC_URL, timeout=FPL_REQUEST_TIMEOUT
-            )
-            response.raise_for_status()
-            self.fpl_data = response.json()
-            logger.info("FPL data response: %s", response.status_code)
+            self.fpl_data = await asyncio.to_thread(fetch_bootstrap_static)
         except requests.exceptions.RequestException as e:
             logger.error("Failed to fetch FPL data: %s", e)

@@ -30,6 +30,11 @@ class ElementResponse(BaseModel):
     news_added: Optional[datetime] = None
     chance_of_playing_next_round: Optional[int] = None
     chance_of_playing_this_round: Optional[int] = None
+    # False for players who can't be picked: left the club, released, not in the squad.
+    # The API never filters them out; the app decides what to hide.
+    can_select: Optional[bool] = None
+    can_transact: Optional[bool] = None
+    removed: Optional[bool] = None
 
     # Price changes and transfers
     cost_change_event: Optional[int] = None
