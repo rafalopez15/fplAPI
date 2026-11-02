@@ -13,10 +13,19 @@ from pathlib import Path  # pylint: disable=wrong-import-position
 import pytest  # pylint: disable=wrong-import-position
 from alembic import command  # pylint: disable=wrong-import-position
 from alembic.config import Config  # pylint: disable=wrong-import-position
-from sqlalchemy import create_engine  # pylint: disable=wrong-import-position
+from fastapi.testclient import TestClient  # pylint: disable=wrong-import-position
+from sqlalchemy import create_engine, func  # pylint: disable=wrong-import-position
 from sqlalchemy.orm import Session  # pylint: disable=wrong-import-position
+from main import app  # pylint: disable=wrong-import-position
+from src.db.models import (  # pylint: disable=wrong-import-position
+    Element,
+    ElementType,
+    Event,
+    SyncRun,
+    Team,
+)
+from src.jobs.sync_bootstrap import to_row  # pylint: disable=wrong-import-position
 from src.util import database  # pylint: disable=wrong-import-position
-from src.util.fpl_service import FplService  # pylint: disable=wrong-import-position
 
 
 def make_element(**overrides):
@@ -71,58 +80,101 @@ def make_element(**overrides):
     return element
 
 
+def make_team(**overrides):
+    team = {
+        "id": 1, "code": 3, "name": "Arsenal", "short_name": "ARS", "position": 1,
+        "played": 9, "win": 7, "draw": 1, "loss": 1, "points": 22, "strength": None,
+        "strength_overall_home": 1300, "strength_overall_away": 1320,
+        "strength_attack_home": 1250, "strength_attack_away": 1290,
+        "strength_defence_home": 1340, "strength_defence_away": 1350,
+        # Fields FPL sends that aren't columns.
+        "form": None, "pulse_id": 1, "unavailable": False,
+    }
+    team.update(overrides)
+    return team
+
+
+def make_element_type(id_, name):
+    return {
+        "id": id_, "singular_name": name, "singular_name_short": name[:3].upper(),
+        "plural_name": f"{name}s", "plural_name_short": name[:3].upper(),
+        "squad_select": 5, "squad_min_play": 1, "squad_max_play": 5,
+        "element_count": 100, "ui_shirt_specific": False,
+    }
+
+
+ELEMENT_TYPES = [
+    make_element_type(id_, name)
+    for id_, name in enumerate(["Goalkeeper", "Defender", "Midfielder", "Forward"], 1)
+]
+
+
 def make_event(**overrides):
+    """The current gameweek, as FPL sends it."""
     event = {
-        "id": 1,
-        "name": "Gameweek 1",
-        "average_entry_score": 50,
-        "highest_scoring_entry": 12345,
-        "deadline_time_epoch": 1723818600,
-        "deadline_time_game_offset": 0,
-        "highest_score": 120,
-        "most_selected": 1,
-        "most_transferred_in": 2,
-        "top_element": 1,
-        "top_element_info": {"id": 1, "points": 20},
-        "transfers_made": 0,
-        "most_captained": 1,
-        "most_vice_captained": 2,
-        "is_current": False,
+        "id": 9, "name": "Gameweek 9", "deadline_time": "2026-10-31T11:00:00Z",
+        "deadline_time_epoch": 1793444400, "deadline_time_game_offset": 0,
+        "release_time": None, "finished": False, "data_checked": False,
+        "is_previous": False, "is_current": True, "is_next": False,
+        "average_entry_score": 52, "highest_score": 127, "highest_scoring_entry": 12345,
+        "transfers_made": 9000000, "most_selected": 1, "most_transferred_in": 2,
+        "most_captained": 2, "most_vice_captained": 1, "top_element": 2,
+        "top_element_info": {"id": 2, "points": 17},
+        "chip_plays": [{"chip_name": "bboost", "num_played": 814606}],
+        "can_enter": False,
     }
     event.update(overrides)
     return event
 
 
-@pytest.fixture
-def fpl_data():
-    return {
-        "elements": [
-            make_element(id=1, element_type=3, web_name="Saka"),
-            make_element(id=2, element_type=4, web_name="Haaland"),
-            make_element(id=3, element_type=3, web_name="Palmer"),
-        ],
-        "element_types": [
-            {"id": 3, "singular_name": "Midfielder"},
-            {"id": 4, "singular_name": "Forward"},
-        ],
-        "events": [
-            make_event(id=1, name="Gameweek 1"),
-            make_event(id=2, name="Gameweek 2", is_current=True),
-        ],
-        "teams": [
-            {"id": 1, "name": "Arsenal"},
-            {"id": 2, "name": "Man City"},
-        ],
-    }
+def future_event():
+    """A gameweek that hasn't been played, so FPL sends null stats."""
+    return make_event(
+        id=10, name="Gameweek 10", deadline_time="2026-11-07T13:30:00Z",
+        deadline_time_epoch=1794058200, is_current=False, is_next=True,
+        average_entry_score=0, highest_score=None, highest_scoring_entry=None,
+        most_selected=None, most_transferred_in=None, most_captained=None,
+        most_vice_captained=None, top_element=None, top_element_info=None, chip_plays=[],
+    )
 
 
 @pytest.fixture
-def loaded_service(fpl_data):
-    """The FplService singleton pre-loaded with sample data."""
-    service = FplService()
-    service.fpl_data = fpl_data
-    yield service
-    service.fpl_data = None
+def seeded_session(db_session):
+    """The test database with a small synced dataset, as the bootstrap sync writes it:
+    2 teams, 4 positions, 3 players, gameweeks 8 to 10, and a successful sync run.
+    """
+    data = [
+        (Team, [make_team(), make_team(id=2, code=43, name="Man City", short_name="MCI")]),
+        (ElementType, ELEMENT_TYPES),
+        (Element, [
+            make_element(id=1),
+            make_element(id=2, web_name="Haaland", team=2, element_type=4, form="8.1"),
+            make_element(id=3, web_name="Palmer"),
+        ]),
+        (Event, [
+            make_event(id=8, name="Gameweek 8", is_current=False, is_previous=True,
+                       finished=True, data_checked=True),
+            make_event(),
+            future_event(),
+        ]),
+    ]
+    for model, items in data:
+        db_session.add_all(model(**to_row(model, item)) for item in items)
+        db_session.flush()
+    db_session.add(SyncRun(kind="bootstrap", status="succeeded", finished_at=func.now()))
+    db_session.flush()
+    return db_session
+
+
+@pytest.fixture
+def client(seeded_session):
+    """A TestClient whose requests use the seeded test database.
+
+    Not used as a context manager, so the app's startup events don't run.
+    """
+    app.dependency_overrides[database.get_session] = lambda: seeded_session
+    yield TestClient(app)
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture(autouse=True)

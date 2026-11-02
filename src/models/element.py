@@ -1,15 +1,17 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ElementResponse(BaseModel):
-    """A player. FPL sends decimals as strings ("4.8"); float fields convert them.
+    """A player, built from an elements row. Decimal columns are returned as floats.
 
     Only the fields the app can't work without are required. The rest default to
     None, so if FPL drops a field or starts sending null for it, the endpoints
     return null for that field instead of failing.
     """
+    model_config = ConfigDict(from_attributes=True)
+
     # Required
     id: int
     web_name: str
