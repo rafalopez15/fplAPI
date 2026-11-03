@@ -6,17 +6,28 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 from main import app
-from src.models.manager import HistoryResponse, ManagerResponse, TransferResponse
+from src.models.manager import (
+    HistoryResponse,
+    ManagerResponse,
+    PicksResponse,
+    TransferResponse,
+)
 from src.routers import managers as managers_router
 from src.services import managers
 from src.util import fpl_client
 from src.util.fpl_client import FplNotFoundError, FplUnavailableError
-from tests.conftest import make_fpl_history, make_fpl_manager, make_fpl_transfers
+from tests.conftest import (
+    make_fpl_history,
+    make_fpl_manager,
+    make_fpl_picks,
+    make_fpl_transfers,
+)
 
 FETCHES = {
     "/api/managers/1": "fetch_manager",
     "/api/managers/1/transfers": "fetch_manager_transfers",
     "/api/managers/1/history": "fetch_manager_history",
+    "/api/managers/1/picks?event=9": "fetch_manager_picks",
 }
 
 
@@ -28,11 +39,12 @@ def api():
 
 @pytest.fixture
 def fpl(monkeypatch):
-    """Mock the three FPL fetches with realistic payloads. Returns the mocks by name."""
+    """Mock the FPL fetches with realistic payloads. Returns the mocks by name."""
     mocks = {
         "fetch_manager": Mock(return_value=make_fpl_manager()),
         "fetch_manager_transfers": Mock(return_value=make_fpl_transfers()),
         "fetch_manager_history": Mock(return_value=make_fpl_history()),
+        "fetch_manager_picks": Mock(return_value=make_fpl_picks()),
     }
     for name, mock in mocks.items():
         monkeypatch.setattr(fpl_client, name, mock)
@@ -62,12 +74,38 @@ def test_get_history_service():
     assert [g.total_points for g in result.current] == [72, 123]
 
 
+@pytest.mark.usefixtures("fpl")
+def test_get_picks_service():
+    result = managers.get_picks(1, 9)
+    assert isinstance(result, PicksResponse)
+    assert len(result.picks) == 15
+
+
+def test_get_picks_service_defaults_to_the_current_event(fpl):
+    fpl["fetch_manager"].return_value = make_fpl_manager(current_event=7)
+    managers.get_picks(42)
+    fpl["fetch_manager"].assert_called_once_with(42)
+    fpl["fetch_manager_picks"].assert_called_once_with(42, 7)
+
+
+def test_get_picks_service_skips_the_manager_call_for_an_explicit_event(fpl):
+    managers.get_picks(42, 3)
+    fpl["fetch_manager"].assert_not_called()
+    fpl["fetch_manager_picks"].assert_called_once_with(42, 3)
+
+
+def test_get_picks_service_returns_none_before_the_first_deadline(fpl):
+    fpl["fetch_manager"].return_value = make_fpl_manager(current_event=None)
+    assert managers.get_picks(42) is None
+    fpl["fetch_manager_picks"].assert_not_called()
+
+
 def test_services_pass_the_manager_id(fpl):
     managers.get_manager(42)
     managers.get_transfers(42)
     managers.get_history(42)
-    for mock in fpl.values():
-        mock.assert_called_once_with(42)
+    for name in ("fetch_manager", "fetch_manager_transfers", "fetch_manager_history"):
+        fpl[name].assert_called_once_with(42)
 
 
 # --- GET /api/managers/{id} --------------------------------------------------
@@ -129,6 +167,56 @@ def test_get_history(api):
     assert body["past"] == [{"season_name": "2024/25", "total_points": 2301, "rank": 150234}]
 
 
+# --- GET /api/managers/{id}/picks --------------------------------------------
+
+@pytest.mark.usefixtures("fpl")
+def test_get_picks(api):
+    response = api.get("/api/managers/1/picks?event=9")
+    assert response.status_code == 200
+    body = response.json()
+    assert body.keys() == PicksResponse.model_fields.keys()
+    assert body["active_chip"] is None
+    assert [p["position"] for p in body["picks"]] == list(range(1, 16))
+    assert body["picks"][4] == {
+        "element": 105, "position": 5, "multiplier": 2, "is_captain": True,
+        "is_vice_captain": False, "element_type": 2,
+    }
+    assert [p["multiplier"] for p in body["picks"][11:]] == [0, 0, 0, 0]  # bench
+    assert body["automatic_subs"] == [{"element_in": 113, "element_out": 103, "event": 9}]
+    assert body["entry_history"]["event"] == 9
+    assert body["entry_history"]["points_on_bench"] == 13
+    assert "percentile_rank" not in body["entry_history"]
+
+
+def test_get_picks_defaults_to_the_current_event(api, fpl):
+    response = api.get("/api/managers/1/picks")
+    assert response.status_code == 200
+    fpl["fetch_manager_picks"].assert_called_once_with(1, 9)  # make_fpl_manager's current_event
+
+
+def test_get_picks_with_a_chip(api, fpl):
+    fpl["fetch_manager_picks"].return_value = make_fpl_picks(active_chip="3xc")
+    body = api.get("/api/managers/1/picks?event=9").json()
+    assert body["active_chip"] == "3xc"
+    assert body["picks"][4]["multiplier"] == 3
+
+
+def test_get_picks_before_the_first_deadline_returns_404(api, fpl):
+    fpl["fetch_manager"].return_value = make_fpl_manager(current_event=None)
+    response = api.get("/api/managers/1/picks")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Manager not found"}
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("bad_event", ["0", "-1", "abc"])
+def test_get_picks_invalid_event_returns_422_without_calling_fpl(api, fpl, bad_event):
+    response = api.get(f"/api/managers/1/picks?event={bad_event}")
+    assert response.status_code == 422
+    for mock in fpl.values():
+        mock.assert_not_called()
+
+
 # --- caching -----------------------------------------------------------------
 
 @pytest.mark.usefixtures("fpl")
@@ -138,6 +226,7 @@ def test_get_history(api):
         ("/api/managers/1", managers_router.MANAGER_CACHE),
         ("/api/managers/1/transfers", managers_router.TRANSFERS_CACHE),
         ("/api/managers/1/history", managers_router.HISTORY_CACHE),
+        ("/api/managers/1/picks", managers_router.PICKS_CACHE),
     ],
 )
 def test_successful_responses_are_cacheable(api, path, cache):
@@ -167,7 +256,7 @@ def test_fpl_unavailable_returns_503(api, fpl, path, fetch):
 
 
 @pytest.mark.parametrize("bad_id", ["0", "-5", "abc", "1.5"])
-@pytest.mark.parametrize("suffix", ["", "/transfers", "/history"])
+@pytest.mark.parametrize("suffix", ["", "/transfers", "/history", "/picks"])
 def test_invalid_id_returns_422_without_calling_fpl(api, fpl, bad_id, suffix):
     response = api.get(f"/api/managers/{bad_id}{suffix}")
     assert response.status_code == 422

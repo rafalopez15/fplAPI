@@ -1,6 +1,11 @@
-from typing import Annotated, List
-from fastapi import APIRouter, HTTPException, Path, Response
-from src.models.manager import HistoryResponse, ManagerResponse, TransferResponse
+from typing import Annotated, List, Optional
+from fastapi import APIRouter, HTTPException, Path, Query, Response
+from src.models.manager import (
+    HistoryResponse,
+    ManagerResponse,
+    PicksResponse,
+    TransferResponse,
+)
 from src.services import managers
 from src.util.fpl_client import FplNotFoundError
 
@@ -12,6 +17,7 @@ managers_router = APIRouter()
 MANAGER_CACHE = "s-maxage=60, stale-while-revalidate=300"
 TRANSFERS_CACHE = "s-maxage=60, stale-while-revalidate=60"
 HISTORY_CACHE = "s-maxage=300, stale-while-revalidate=600"
+PICKS_CACHE = "s-maxage=60, stale-while-revalidate=300"
 NO_STORE = {"Cache-Control": "no-store"}
 
 ManagerId = Annotated[int, Path(gt=0, description="The FPL manager (entry) id")]
@@ -61,4 +67,28 @@ def get_history(manager_id: ManagerId, response: Response) -> HistoryResponse:
     except FplNotFoundError as exc:
         raise manager_not_found() from exc
     response.headers["Cache-Control"] = HISTORY_CACHE
+    return result
+
+
+@managers_router.get("/managers/{manager_id}/picks")
+def get_picks(
+    manager_id: ManagerId,
+    response: Response,
+    event: Annotated[Optional[int], Query(gt=0, description="The gameweek")] = None,
+) -> PicksResponse:
+    """Get a manager's 15-player squad for a gameweek, with captain, chip and points.
+
+    Without event, returns the manager's current gameweek: the latest one whose
+    deadline has passed. FPL only publishes picks after the deadline, so transfers
+    made since then don't show yet.
+    Returns 404 if FPL has no such manager or no picks for that gameweek, and 503 if
+    FPL can't be reached.
+    """
+    try:
+        result = managers.get_picks(manager_id, event)
+    except FplNotFoundError as exc:
+        raise manager_not_found() from exc
+    if result is None:
+        raise manager_not_found()
+    response.headers["Cache-Control"] = PICKS_CACHE
     return result

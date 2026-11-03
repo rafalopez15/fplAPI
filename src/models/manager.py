@@ -70,3 +70,33 @@ class HistoryResponse(BaseModel):
     current: List[GameweekHistory]
     chips: List[ChipUsed]
     past: List[PastSeason]
+
+
+class Pick(BaseModel):
+    """One player in a squad. position 1-11 is the starting XI, 12-15 the bench in order."""
+    element: int
+    position: int
+    # 0 on the bench, 1 playing, 2 captain, 3 triple captain.
+    multiplier: Optional[int] = None
+    is_captain: Optional[bool] = None
+    is_vice_captain: Optional[bool] = None
+    element_type: Optional[int] = None
+
+
+class AutomaticSub(BaseModel):
+    """A bench player FPL brought on for a starter who didn't play."""
+    element_in: int
+    element_out: int
+    event: int
+
+
+class PicksResponse(BaseModel):
+    """A manager's squad for one gameweek, from entry/{id}/event/{gw}/picks/.
+
+    entry_history is the manager's result that gameweek; its event field says which
+    gameweek this is.
+    """
+    active_chip: Optional[str] = None  # "wildcard", "freehit", "bboost", "3xc" or null
+    picks: List[Pick]
+    automatic_subs: List[AutomaticSub]
+    entry_history: GameweekHistory
