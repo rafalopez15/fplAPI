@@ -49,7 +49,8 @@ src/
     events.py            /events, /events/{id}, /events/current-event/
     teams.py             /teams, /teams/{team_name}
     fixtures.py          /fixtures (optional ?finished= and ?started= filters)
-    managers.py          /managers/{id}, /managers/{id}/transfers, /managers/{id}/history (live from FPL)
+    managers.py          /managers/{id}, /managers/{id}/transfers, /managers/{id}/history,
+                         /managers/{id}/picks?event= (live from FPL)
   services/              Business logic: queries that return Pydantic models
   models/                Pydantic response models (ElementResponse, EventResponse, TeamResponse)
   db/
@@ -103,8 +104,9 @@ The one exception is `/managers/...`: manager data is per user and can't be sync
 ### Fetching
 - All FPL calls go through `src/util/fpl_client.py`, with a timeout and a descriptive `User-Agent` (`HEADERS`).
 - **Sync job:** `fetch_bootstrap_static()` and `fetch_fixtures()` use `FPL_REQUEST_TIMEOUT` (default 10s) and raise `requests` errors on network errors, error statuses (`raise_for_status()`) and invalid JSON. The job catches them, records the failed run, and leaves the previous data in place.
-- **Manager endpoints:** `fetch_manager()`, `fetch_manager_transfers()` and `fetch_manager_history()` use the shorter `FPL_PROXY_TIMEOUT` (default 5s), because someone is waiting. They raise `FplNotFoundError` for FPL's 404 and `FplUnavailableError` for everything else, including timeouts, 429/5xx and FPL's HTML "the game is being updated" page.
-- **Caching:** the manager routes set `Cache-Control: s-maxage=..., stale-while-revalidate=...` on successful responses, so Vercel's CDN serves repeats without calling FPL: 60s for the manager and transfers, 300s for history. Errors send `no-store`. An in-memory cache would be useless on Vercel, whose instances don't share memory and scale to zero.
+- **Manager endpoints:** `fetch_manager()`, `fetch_manager_transfers()`, `fetch_manager_history()` and `fetch_manager_picks()` use the shorter `FPL_PROXY_TIMEOUT` (default 5s), because someone is waiting. They raise `FplNotFoundError` for FPL's 404 and `FplUnavailableError` for everything else, including timeouts, 429/5xx and FPL's HTML "the game is being updated" page.
+- **Picks:** FPL only publishes a squad once the gameweek's deadline has passed. Without `?event=`, `/picks` first calls `fetch_manager()` for the manager's `current_event` (two FPL calls), and returns 404 if there's none yet. FPL's 404 for a gameweek with no picks (before the manager joined, or not yet played) is also "Manager not found".
+- **Caching:** the manager routes set `Cache-Control: s-maxage=..., stale-while-revalidate=...` on successful responses, so Vercel's CDN serves repeats without calling FPL: 60s for the manager, transfers and picks, 300s for history. Errors send `no-store`. An in-memory cache would be useless on Vercel, whose instances don't share memory and scale to zero.
 
 ### Error responses
 Use these status codes consistently:
