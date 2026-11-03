@@ -185,6 +185,11 @@ def test_get_team_by_name(client):
     assert response.json()["short_name"] == "MCI"
 
 
+def test_teams_include_kit_colors(client):
+    arsenal = client.get("/api/teams").json()[0]
+    assert (arsenal["primary_color"], arsenal["secondary_color"]) == ("#EF0107", "#FFFFFF")
+
+
 def test_get_team_by_name_not_found(client):
     response = client.get("/api/teams/Nowhere")
     assert response.status_code == 404
