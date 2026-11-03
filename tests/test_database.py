@@ -1,3 +1,4 @@
+import importlib.util
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
@@ -16,6 +17,18 @@ def test_engine_uses_database_url():
 
 def test_engine_uses_pool_size():
     assert database.engine.pool.size() == config.DATABASE_POOL_SIZE
+
+
+def test_engine_disables_prepared_statements(monkeypatch):
+    # The engine is built at import, so run database.py as a fresh module with
+    # create_engine mocked, leaving the real src.util.database untouched.
+    create_engine_mock = MagicMock()
+    monkeypatch.setattr("sqlalchemy.create_engine", create_engine_mock)
+    spec = importlib.util.spec_from_file_location("database_under_test", database.__file__)
+    spec.loader.exec_module(importlib.util.module_from_spec(spec))
+
+    connect_args = create_engine_mock.call_args.kwargs["connect_args"]
+    assert connect_args["prepare_threshold"] is None
 
 
 def test_database_reachable(monkeypatch):

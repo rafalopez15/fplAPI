@@ -18,12 +18,15 @@ logger = logging.getLogger(__name__)
 
 # Creating the engine doesn't connect; connections open on first use.
 # pool_pre_ping replaces connections the pooler has closed while idle.
+# prepare_threshold=None turns off psycopg's automatic prepared statements: on
+# Vercel the API uses Supabase's transaction pooler, which can't keep them between
+# transactions. The session pooler, used by the jobs, doesn't need it but works too.
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
     pool_size=DATABASE_POOL_SIZE,
     max_overflow=DATABASE_MAX_OVERFLOW,
-    connect_args={"connect_timeout": DATABASE_CONNECT_TIMEOUT},
+    connect_args={"connect_timeout": DATABASE_CONNECT_TIMEOUT, "prepare_threshold": None},
 )
 
 
