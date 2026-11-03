@@ -200,6 +200,35 @@ def make_fpl_history():
     }
 
 
+
+def make_fpl_picks(event=9, active_chip=None):
+    """FPL's entry/{id}/event/{gw}/picks/ response: 11 starters (captain at position
+    5, vice at 6), 4 on the bench, one automatic sub, and fields PicksResponse leaves
+    out.
+    """
+    element_types = [1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 1, 2, 3, 4]
+    picks = [
+        {"element": 100 + position, "position": position,
+         "multiplier": 0 if position > 11 else 1, "is_captain": False,
+         "is_vice_captain": False, "element_type": element_type}
+        for position, element_type in enumerate(element_types, start=1)
+    ]
+    picks[4].update(multiplier=3 if active_chip == "3xc" else 2, is_captain=True)
+    picks[5]["is_vice_captain"] = True
+    return {
+        "active_chip": active_chip,
+        "automatic_subs": [{"entry": 1, "element_in": 113, "element_out": 103,
+                            "event": event}],
+        "entry_history": {
+            "event": event, "points": 55, "total_points": 563, "rank": 2551066,
+            "overall_rank": 1673563, "bank": 21, "value": 1022, "event_transfers": 3,
+            "event_transfers_cost": 0, "points_on_bench": 13,
+            # Left out of the response.
+            "rank_sort": 2551066, "percentile_rank": 25, "overall_rank_percentage": "15",
+        },
+        "picks": picks,
+    }
+
 SEEDED_FIXTURES = [
     # Listed out of kickoff order, the way FPL's list can be.
     make_fixture(),  # 91: gameweek 10, 7 Nov

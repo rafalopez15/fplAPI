@@ -8,7 +8,8 @@ logger = logging.getLogger(__name__)
 # so they're constants rather than settings.
 BOOTSTRAP_STATIC_URL = f"{FPL_BASE_URL}/bootstrap-static/"
 FIXTURES_URL = f"{FPL_BASE_URL}/fixtures/"
-# Manager endpoints: ENTRY_URL + "{id}/", "{id}/transfers/" or "{id}/history/".
+# Manager endpoints: ENTRY_URL + "{id}/", "{id}/transfers/", "{id}/history/" or
+# "{id}/event/{gw}/picks/".
 ENTRY_URL = f"{FPL_BASE_URL}/entry/"
 
 # Identifies us to FPL instead of the default "python-requests/x.y".
@@ -79,3 +80,12 @@ def fetch_manager_transfers(manager_id: int) -> list:
 def fetch_manager_history(manager_id: int) -> dict:
     """A manager's points and rank per gameweek, chips played and past seasons."""
     return _get_manager_json(f"{manager_id}/history/")
+
+
+def fetch_manager_picks(manager_id: int, event: int) -> dict:
+    """A manager's squad for a gameweek: 15 picks, chip, automatic subs and points.
+
+    FPL only publishes picks once the gameweek's deadline has passed, and answers
+    404 (FplNotFoundError) for gameweeks before the manager joined or still to come.
+    """
+    return _get_manager_json(f"{manager_id}/event/{event}/picks/")

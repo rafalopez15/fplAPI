@@ -98,6 +98,8 @@ def test_requests_identify_fplapi():
         (fpl_client.fetch_manager, "1/"),
         (fpl_client.fetch_manager_transfers, "1/transfers/"),
         (fpl_client.fetch_manager_history, "1/history/"),
+        (lambda manager_id: fpl_client.fetch_manager_picks(manager_id, 9),
+         "1/event/9/picks/"),
     ],
 )
 def test_manager_fetches_use_the_proxy_timeout(monkeypatch, fetch, path):
