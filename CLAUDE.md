@@ -87,8 +87,11 @@ The one exception is `/managers/...`: manager data is per user and can't be sync
 
 ### Database
 - Postgres on Supabase, accessed with SQLAlchemy (sync engine, psycopg 3 driver) and migrated with Alembic.
-- `DATABASE_URL` (required) is the Supabase **session pooler** URI with the scheme changed to `postgresql+psycopg://` and `?sslmode=require` added. The session pooler works over IPv4 and supports prepared statements; the direct connection is IPv6-only. `DATABASE_CONNECT_TIMEOUT` (default 5s) is optional.
-- **Connection pool:** `DATABASE_POOL_SIZE` (default 3) and `DATABASE_MAX_OVERFLOW` (default 2). Keep them small: every Vercel instance has its own pool, and Supabase's free pooler allows only a few connections in total.
+- `DATABASE_URL` (required) is a Supabase pooler URI with the scheme changed to `postgresql+psycopg://` and `?sslmode=require` added. Both poolers work over IPv4; the direct connection is IPv6-only. `DATABASE_CONNECT_TIMEOUT` (default 5s) is optional.
+  - **The API on Vercel uses the transaction pooler (port 6543).** The session pooler (port 5432) gives each open client connection one of only 15 slots, and every warm Vercel instance, previews included, keeps its own pool open. On 3 November 2026 they took all 15 and the hourly sync couldn't connect. The transaction pooler shares server connections between transactions, so idle pools don't hold slots.
+  - **The GitHub workflows (sync and migrate) and a local `.env` use the session pooler (port 5432),** through the `DATABASE_URL` repository secret. Vercel's variable and that secret are separate, so no code picks a URL.
+  - The transaction pooler can't keep prepared statements between transactions, so the engine sets `prepare_threshold=None` (psycopg prepares statements automatically otherwise). It works on both poolers.
+- **Connection pool:** `DATABASE_POOL_SIZE` (default 3) and `DATABASE_MAX_OVERFLOW` (default 2). Keep them small: every Vercel instance has its own pool, and Supabase's free plan allows only a few server connections in total. Anything that connects through the session pooler holds one of its 15 slots for as long as the connection is open.
 - Never print or log `DATABASE_URL`: it contains the password.
 - `migrations/env.py` reads the URL from `config.py`, never from `alembic.ini`, and escapes `%` for configparser. If a URL is already set (as the tests do), it keeps that one.
 - **Schema** (design in the FPL-7 spike's "Spike outcome" comment in Linear): `teams`, `element_types`, `elements`, `events`, `fixtures` (every match of the season, from `/fixtures/`), `player_fixture_history` (one row per player per fixture, from `/element-summary/{id}/`) and `sync_runs`.
@@ -125,7 +128,7 @@ Use these status codes consistently:
 ### Hosting
 - Production runs on **Vercel** (Hobby plan: personal, non-commercial use only), decided in the FPL-25 spike. Vercel's zero-config FastAPI support serves the `app` in `main.py`; there's no Vercel-specific code.
 - `vercel.json` pins the region to `cle1` (Cleveland, AWS us-east-2, next to Supabase), and `.python-version` pins Python 3.13. Keep that file in step with CI's Python.
-- Vercel's only required environment variable is `DATABASE_URL` (marked Sensitive). Pushes to `main` deploy to production; PRs get preview URLs.
+- Vercel's only required environment variable is `DATABASE_URL` (marked Sensitive), the **transaction pooler** URI (port 6543) for both Production and Preview (see Database). Pushes to `main` deploy to production; PRs get preview URLs.
 - Instances scale to zero, so the first request after idle has a cold start of a second or two. An always-warm instance needs Vercel Pro.
 - The `Dockerfile` (`python:3.13-slim`, runtime dependencies only, non-root) is for local runs and a future move to a container host such as Cloud Run, the fallback if the app goes commercial. Vercel doesn't use it. `.dockerignore` keeps `.env`, `env/`, tests and migrations out of the image; use `**/` patterns so they match in subfolders.
 
