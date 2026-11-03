@@ -229,6 +229,24 @@ def make_fpl_picks(event=9, active_chip=None):
         "picks": picks,
     }
 
+
+def make_fpl_event_live():
+    """FPL's event/{gw}/live/ response, trimmed: a player who scored, one who played
+    for 0 points, and one who didn't play. Real items also carry ~25 more stats."""
+    def item(id_, minutes, total_points):
+        return {
+            "id": id_,
+            "stats": {"minutes": minutes, "goals_scored": 0, "bonus": 0, "bps": 3,
+                      "total_points": total_points, "in_dreamteam": False,
+                      "played": minutes > 0},
+            "explain": [{"fixture": 87, "stats": [
+                {"identifier": "minutes", "points": 2, "value": minutes,
+                 "points_modification": 0}]}],
+            "modified": False,
+        }
+    return {"elements": [item(1, 90, 5), item(2, 12, 0), item(3, 0, 0)]}
+
+
 SEEDED_FIXTURES = [
     # Listed out of kickoff order, the way FPL's list can be.
     make_fixture(),  # 91: gameweek 10, 7 Nov

@@ -46,7 +46,7 @@ src/
   routers/               HTTP layer: one APIRouter per resource, mounted under /api
     __init__.py          Combines the resource routers into a single `routers`
     elements.py          /elements, /elements/{id}, /elements/position/{element_type}
-    events.py            /events, /events/{id}, /events/current-event/
+    events.py            /events, /events/{id}, /events/current-event/, /events/{id}/live (live from FPL)
     teams.py             /teams, /teams/{team_name}
     fixtures.py          /fixtures (optional ?finished= and ?started= filters)
     managers.py          /managers/{id}, /managers/{id}/transfers, /managers/{id}/history,
@@ -60,7 +60,7 @@ src/
   util/
     config.py            Reads .env (python-dotenv) into module-level constants
     database.py          Engine, session dependencies (DataSession), sync state, health checks
-    fpl_client.py        fetch_bootstrap_static(), used only by the sync job
+    fpl_client.py        All FPL calls: the sync job's fetches and the live ones (manager*, event_live)
 tests/                   pytest suite, one file per layer (test_db.py: schema and migrations)
 vercel.json              Vercel settings: function region (cle1)
 .python-version          Python version for Vercel (3.13)
@@ -69,7 +69,7 @@ Dockerfile               Image for running the API locally (Vercel doesn't use i
 
 **Request flow:** router → service → SQLAlchemy query on Postgres → Pydantic response model.
 
-The one exception is `/managers/...`: manager data is per user and can't be synced ahead of time, so those services call FPL live through `fpl_client` (router → service → `fetch_manager*()` → FPL). Vercel's CDN caches their successful responses (see Fetching), and they don't touch the database, so they work even when the sync is behind.
+The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live through `fpl_client` (router → service → `fetch_*()` → FPL). Manager data is per user and can't be synced ahead of time, and live points change by the minute during matches. Vercel's CDN caches their successful responses (see Fetching), and they don't touch the database, so they work even when the sync is behind.
 
 - **Routers** handle HTTP concerns only: path parameters, status codes, `HTTPException`. Endpoints are plain `def`, so FastAPI runs them in its thread pool and the blocking database calls don't stall the event loop. Each takes a `session: DataSession` and passes it to a service.
 - **`DataSession`** (`src/util/database.py`) is the request's session from `get_session`, after `get_data_session` checks that a bootstrap sync has succeeded. Tests override `get_session`.
@@ -107,9 +107,10 @@ The one exception is `/managers/...`: manager data is per user and can't be sync
 ### Fetching
 - All FPL calls go through `src/util/fpl_client.py`, with a timeout and a descriptive `User-Agent` (`HEADERS`).
 - **Sync job:** `fetch_bootstrap_static()` and `fetch_fixtures()` use `FPL_REQUEST_TIMEOUT` (default 10s) and raise `requests` errors on network errors, error statuses (`raise_for_status()`) and invalid JSON. The job catches them, records the failed run, and leaves the previous data in place.
-- **Manager endpoints:** `fetch_manager()`, `fetch_manager_transfers()`, `fetch_manager_history()` and `fetch_manager_picks()` use the shorter `FPL_PROXY_TIMEOUT` (default 5s), because someone is waiting. They raise `FplNotFoundError` for FPL's 404 and `FplUnavailableError` for everything else, including timeouts, 429/5xx and FPL's HTML "the game is being updated" page.
+- **Live endpoints:** `fetch_manager()`, `fetch_manager_transfers()`, `fetch_manager_history()`, `fetch_manager_picks()` and `fetch_event_live()` go through `_get_live_json()` and use the shorter `FPL_PROXY_TIMEOUT` (default 5s), because someone is waiting. They raise `FplNotFoundError` for FPL's 404 and `FplUnavailableError` for everything else, including timeouts, 429/5xx and FPL's HTML "the game is being updated" page.
 - **Picks:** FPL only publishes a squad once the gameweek's deadline has passed. Without `?event=`, `/picks` first calls `fetch_manager()` for the manager's `current_event` (two FPL calls), and returns 404 if there's none yet. FPL's 404 for a gameweek with no picks (before the manager joined, or not yet played) is also "Manager not found".
-- **Caching:** the manager routes set `Cache-Control: s-maxage=..., stale-while-revalidate=...` on successful responses, so Vercel's CDN serves repeats without calling FPL: 60s for the manager, transfers and picks, 300s for history. Errors send `no-store`. An in-memory cache would be useless on Vercel, whose instances don't share memory and scale to zero.
+- **Live points:** `/events/{id}/live` flattens FPL's `event/{gw}/live/` (about 475KB, ~30 stats and a breakdown per player) to `id`, `total_points` and `minutes` per player (about 27KB). FPL returns an empty list for a gameweek that hasn't started (200 `[]`) and 404 outside 1–38 (`"Event not found"`).
+- **Caching:** the live routes set `Cache-Control: s-maxage=..., stale-while-revalidate=...` on successful responses, so Vercel's CDN serves repeats without calling FPL: 60s for the manager, transfers, picks and live points, 300s for history. Errors send `no-store`. An in-memory cache would be useless on Vercel, whose instances don't share memory and scale to zero.
 
 ### Error responses
 Use these status codes consistently:
@@ -118,7 +119,7 @@ Use these status codes consistently:
 |---|---|
 | No bootstrap sync has succeeded yet (`FplDataUnavailableError`), or the database is unreachable (`OperationalError`) | **503** `"FPL data is currently unavailable"`, from the handlers in `main.py` |
 | A live call to FPL fails (`FplUnavailableError`) | **503** `"FPL is unavailable right now"`, with `Cache-Control: no-store` |
-| Single-item lookup or filter finds nothing | **404** with a resource-specific detail, e.g. `"Team not found"`. Unknown FPL managers: `"Manager not found"`, with `no-store` |
+| Single-item lookup or filter finds nothing | **404** with a resource-specific detail, e.g. `"Team not found"`. Unknown FPL managers: `"Manager not found"`, and gameweeks FPL doesn't have on `/live`: `"Event not found"`, both with `no-store` |
 | Collection endpoint with no items | **200** with `[]` |
 | Invalid path parameter type | **422** (FastAPI default) |
 
