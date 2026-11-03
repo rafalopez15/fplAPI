@@ -7,6 +7,7 @@ from src.util.config import FPL_BASE_URL, FPL_PROXY_TIMEOUT, FPL_REQUEST_TIMEOUT
 from src.util.fpl_client import (
     BOOTSTRAP_STATIC_URL,
     ENTRY_URL,
+    EVENT_URL,
     FIXTURES_URL,
     HEADERS,
     FplNotFoundError,
@@ -107,6 +108,22 @@ def test_manager_fetches_use_the_proxy_timeout(monkeypatch, fetch, path):
 
     assert fetch(1) == {"ok": True}
     get.assert_called_once_with(ENTRY_URL + path, timeout=FPL_PROXY_TIMEOUT, headers=HEADERS)
+
+
+def test_event_live_uses_the_proxy_timeout(monkeypatch):
+    get = mock_get(monkeypatch, ok_response({"elements": []}))
+
+    assert fpl_client.fetch_event_live(9) == {"elements": []}
+    get.assert_called_once_with(
+        EVENT_URL + "9/live/", timeout=FPL_PROXY_TIMEOUT, headers=HEADERS
+    )
+
+
+def test_unknown_event_raises_not_found(monkeypatch):
+    mock_get(monkeypatch, error_response(404, "Not Found"))
+
+    with pytest.raises(FplNotFoundError):
+        fpl_client.fetch_event_live(39)
 
 
 def test_unknown_manager_raises_not_found(monkeypatch):

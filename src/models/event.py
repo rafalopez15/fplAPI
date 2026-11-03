@@ -54,3 +54,13 @@ class EventResponse(BaseModel):
         if data.top_element is not None and data.top_element_points is not None:
             fields["top_element_info"] = {"id": data.top_element, "points": data.top_element_points}
         return fields
+
+
+class LiveElementResponse(BaseModel):
+    """One player's result in a gameweek, from FPL's event/{gw}/live/ stats.
+
+    minutes tells "0 points, didn't play" (0 minutes) from "0 points, played".
+    """
+    id: int
+    total_points: Optional[int] = None
+    minutes: Optional[int] = None

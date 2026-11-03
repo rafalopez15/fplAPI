@@ -11,6 +11,8 @@ FIXTURES_URL = f"{FPL_BASE_URL}/fixtures/"
 # Manager endpoints: ENTRY_URL + "{id}/", "{id}/transfers/", "{id}/history/" or
 # "{id}/event/{gw}/picks/".
 ENTRY_URL = f"{FPL_BASE_URL}/entry/"
+# Every player's points in a gameweek: EVENT_URL + "{gw}/live/".
+EVENT_URL = f"{FPL_BASE_URL}/event/"
 
 # Identifies us to FPL instead of the default "python-requests/x.y".
 HEADERS = {"User-Agent": "fplAPI/1.0 (+https://github.com/rafalopez15/fplAPI)"}
@@ -47,14 +49,13 @@ def fetch_fixtures() -> list:
     return _get_json(FIXTURES_URL)
 
 
-def _get_manager_json(path: str):
-    """GET a manager endpoint for the API, which calls these live per request.
+def _get_live_json(url: str):
+    """GET an FPL endpoint that the API calls live, per request.
 
     Raises FplNotFoundError for FPL's 404 and FplUnavailableError for anything
     else that goes wrong: timeouts, connection errors, 5xx and 429 responses, and
     FPL's HTML "the game is being updated" page, which isn't JSON.
     """
-    url = ENTRY_URL + path
     try:
         return _get_json(url, timeout=FPL_PROXY_TIMEOUT)
     except requests.exceptions.HTTPError as exc:
@@ -65,6 +66,10 @@ def _get_manager_json(path: str):
     except requests.exceptions.RequestException as exc:
         logger.warning("FPL request failed for %s: %s", url, exc)
         raise FplUnavailableError(str(exc)) from exc
+
+
+def _get_manager_json(path: str):
+    return _get_live_json(ENTRY_URL + path)
 
 
 def fetch_manager(manager_id: int) -> dict:
@@ -89,3 +94,12 @@ def fetch_manager_picks(manager_id: int, event: int) -> dict:
     404 (FplNotFoundError) for gameweeks before the manager joined or still to come.
     """
     return _get_manager_json(f"{manager_id}/event/{event}/picks/")
+
+
+def fetch_event_live(event: int) -> dict:
+    """Every player's stats and points in a gameweek, updated during matches.
+
+    FPL answers 404 (FplNotFoundError) for a gameweek outside 1-38, and an empty
+    "elements" list for one that hasn't started.
+    """
+    return _get_live_json(f"{EVENT_URL}{event}/live/")
