@@ -66,7 +66,7 @@ The API uses a PostgreSQL database hosted on Supabase's free plan.
 Keep in mind:
 - Never commit `DATABASE_URL` or paste it anywhere public: it contains the password.
 - Free projects pause after a week without activity. Restore the project from the Supabase dashboard if that happens.
-- If you reset the database password in Supabase, update `DATABASE_URL` in `.env`.
+- If you reset the database password in Supabase, update `DATABASE_URL` in `.env`, in Vercel and in the GitHub secret.
 
 ## 🔀 Migrations (Alembic)
 Schema changes are versioned migrations in `migrations/versions/`. Alembic reads the connection string from `DATABASE_URL`, so **commands run against whichever database `.env` points at**.
@@ -138,7 +138,11 @@ In the Vercel project, under **Settings → Environment Variables**, set:
 
 | Variable | Value |
 |---|---|
-| `DATABASE_URL` | The same session pooler URL as in `.env`. Mark it **Sensitive**. |
+| `DATABASE_URL` | The **transaction pooler** URL, set for Production and Preview. Mark it **Sensitive**. |
+
+Get it from **Connect → Transaction pooler** in Supabase and change it as in the Database section: `postgresql+psycopg://` at the start, `?sslmode=require` at the end. It ends in `:6543/postgres?sslmode=require`.
+
+Vercel uses the transaction pooler, not the session pooler in `.env`. The session pooler gives each open connection one of only 15 slots, and every warm Vercel instance keeps a few connections open, so they can fill every slot and lock the hourly sync out. The transaction pooler shares connections between requests. The GitHub workflows and local runs stay on the session pooler.
 
 That's the only required setting; the others have defaults. After a deploy, `https://<project>.vercel.app/healthcheck` should return `"database": "ok"` with a recent `last_sync`.
 
