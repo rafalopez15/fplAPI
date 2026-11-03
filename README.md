@@ -88,7 +88,7 @@ To change the schema:
 Don't edit a migration that has already been applied: add a new one instead.
 
 ## ⏱️ Scheduled jobs (GitHub Actions)
-`src/jobs/sync_bootstrap.py` copies FPL's `bootstrap-static` (teams, positions, players and gameweeks) and the season's fixtures into the database. GitHub Actions runs it every hour, and each run is recorded in the `sync_runs` table. A failed run leaves the previous data in place.
+`src/jobs/sync_bootstrap.py` copies FPL's `bootstrap-static` (teams, positions, players and gameweeks) and the season's fixtures into the database. GitHub Actions runs it every hour, started by Supabase (see [Hourly trigger](#hourly-trigger-supabase-pg_cron)), and each run is recorded in the `sync_runs` table. A failed run leaves the previous data in place.
 
 When a change to `migrations/`, `src/db/` or `alembic.ini` reaches `main`, the **Migrate database** workflow applies it to Supabase with `alembic upgrade head`.
 
@@ -101,6 +101,56 @@ Both can also be started by hand from the **Actions** tab (**Run workflow**). To
 ```bash
 python -m src.jobs.sync_bootstrap
 ```
+
+### Hourly trigger (Supabase pg_cron)
+GitHub runs scheduled workflows on a best-effort basis: on 2 November 2026 it ran 2 of about 27 hourly syncs. So Supabase starts the sync instead. Every hour at :17 UTC, a `pg_cron` job in the database uses `pg_net` to call GitHub's [workflow dispatch API](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event), the same thing the **Run workflow** button does. These runs show in Actions as `workflow_dispatch`, started by the token's owner.
+
+The workflow's own `schedule` stays as a backup. If both fire, the `database` concurrency group queues the second run, and the sync skips rows that haven't changed.
+
+None of this is in the repo or in a migration. Migrations also run against the test databases, which don't have `pg_cron`, `pg_net` or Vault. To set it up (or recreate it):
+
+1. **Create a GitHub token.** In GitHub, go to **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**. Set the resource owner to your account, repository access to **Only select repositories** → this repository, and **Actions: Read and write** as the only permission, with an expiry date. "Public repositories" access is read-only, and GitHub answers it with 403 "Resource not accessible by personal access token".
+2. **Enable the extensions.** In Supabase, go to **Database → Extensions** and enable `pg_cron` and `pg_net`.
+3. **Store the token in Vault.** In Supabase's **SQL Editor**, run this with the token in place of `<token>`. This is the only place the token goes; don't save the query.
+   ```sql
+   select vault.create_secret('<token>', 'github_dispatch_token', 'Starts sync-bootstrap.yml in GitHub Actions');
+   ```
+4. **Schedule the job.** The SQL reads the token from Vault each time it runs:
+   ```sql
+   select cron.schedule('sync-bootstrap', '17 * * * *', $$
+     select net.http_post(
+       url := 'https://api.github.com/repos/rafalopez15/fplAPI/actions/workflows/sync-bootstrap.yml/dispatches',
+       headers := jsonb_build_object(
+         'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets
+                                        where name = 'github_dispatch_token'),
+         'Accept', 'application/vnd.github+json',
+         'X-GitHub-Api-Version', '2022-11-28',
+         'User-Agent', 'fplAPI-sync-trigger'),
+       body := '{"ref": "main"}'::jsonb
+     )
+   $$);
+   ```
+
+**Token expiry:** 1 February 2027. Rotate it before then: create a new token as in step 1, then run
+```sql
+select vault.update_secret(
+  (select id from vault.secrets where name = 'github_dispatch_token'), '<new token>');
+```
+and update the date above.
+
+**Checking it.** In the SQL Editor:
+```sql
+-- Did the cron job run? Look for status 'succeeded'.
+select start_time, status, return_message from cron.job_run_details
+order by start_time desc limit 5;
+
+-- What did GitHub answer? 204 means the run was started; 401 means the token is wrong or expired;
+-- 403 means it lacks Actions write access to this repository.
+-- pg_net keeps responses for about 6 hours.
+select created, status_code, content from net._http_response
+order by created desc limit 5;
+```
+`last_sync` in `/healthcheck` should never be much more than an hour old. To stop the trigger, run `select cron.unschedule('sync-bootstrap');`.
 
 ## ▶️ Running locally
 ```bash
