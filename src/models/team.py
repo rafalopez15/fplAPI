@@ -28,7 +28,6 @@ class TeamResponse(BaseModel):
     strength_defence_home: Optional[int] = None
     strength_defence_away: Optional[int] = None
 
-    # Home kit colors as hex, e.g. "#EF0107", from KIT_COLORS in services/teams.py.
-    # FPL has no colors; null for a club that isn't in that map.
+    # Hex, e.g. "#EF0107", from KIT_COLORS in services/teams.py; null if the club isn't there.
     primary_color: Optional[str] = None
     secondary_color: Optional[str] = None

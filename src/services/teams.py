@@ -4,11 +4,9 @@ from sqlalchemy.orm import Session
 from src.db.models import Team
 from src.models.team import TeamResponse
 
-# Each club's home kit colors (primary, secondary), keyed by FPL's team code.
-# The code stays the same for a club every season; FPL's team id doesn't. FPL has
-# no colors, so this is kept by hand: traditional home colors, recognisable rather
-# than exact. Clubs missing here get null colors, and nothing flags them: each
-# summer, add the promoted clubs and remove the relegated ones by hand.
+# Traditional home kit colors (primary, secondary), kept by hand since FPL has none.
+# Keyed by team code, which stays the same each season (ids don't). Missing clubs
+# get null with no warning, so add promoted clubs and drop relegated ones each summer.
 KIT_COLORS = {
     3: ("#EF0107", "#FFFFFF"),   # Arsenal
     7: ("#670E36", "#95BFE5"),   # Aston Villa
