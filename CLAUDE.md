@@ -75,6 +75,7 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
 - **`DataSession`** (`src/util/database.py`) is the request's session from `get_session`, after `get_data_session` checks that a bootstrap sync has succeeded. Tests override `get_session`.
 - **Services** are plain functions that take the session first. They query with the ORM models and return Pydantic models (built with `model_validate(row)`), or `None`/`[]` when nothing matches. Lists are in FPL id order.
 - **Response models** use `from_attributes=True`. `EventResponse` rebuilds FPL's `top_element_info` object from the `top_element` and `top_element_points` columns.
+- **Kit colors** (`primary_color`, `secondary_color` on teams) are the one thing FPL doesn't provide. They come from `KIT_COLORS` in `src/services/teams.py`, keyed by FPL's team `code` (the same for a club every season, unlike `id`), not from the database. A club missing from it gets `null`. **Each summer, add the promoted clubs** (their `code` is on `/api/teams` once FPL publishes the new season); `test_kit_colors_cover_a_full_league_in_hex` expects 20 entries, so drop the relegated ones too. Nothing flags a missing club automatically: the test only counts the map's entries and can't see FPL's clubs, so CI stays green while new clubs get `null`.
 - **Data refresh:** `src/jobs/sync_bootstrap.py` upserts bootstrap-static and FPL's `/fixtures/` into Postgres every hour (GitHub Actions), in one transaction. Nothing is fetched at startup or per request. `/healthcheck` reports the last successful sync as `last_sync`.
 
 ## Design decisions
@@ -82,7 +83,7 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
 ### Configuration
 - **Secrets and per-environment settings live in `.env`**, are read in `src/util/config.py`, and are imported as constants. Values that are the same everywhere don't belong there.
 - `DATABASE_URL` is the only required setting. It goes through `_get_env()`, which strips surrounding whitespace and raises at import time if it's missing or empty, so the app fails fast. Optional ones, like `FPL_REQUEST_TIMEOUT` (default 10s), use `os.getenv` with a default. A new setting should be optional with a default: the deployed API imports `config.py` too, and a new required setting would stop it from starting until it was added in Vercel.
-- **FPL's API paths are constants in `src/util/fpl_client.py`** (`BOOTSTRAP_STATIC_URL`, `FIXTURES_URL`, `ENTRY_URL`), built from `FPL_BASE_URL`. That one is optional, defaulting to `https://fantasy.premierleague.com/api`, so it can point at a local mock. To call a new FPL endpoint, add a constant there, not a setting.
+- **FPL's API paths are constants in `src/util/fpl_client.py`** (`BOOTSTRAP_STATIC_URL`, `FIXTURES_URL`, `ENTRY_URL`, `EVENT_URL`), built from `FPL_BASE_URL`. That one is optional, defaulting to `https://fantasy.premierleague.com/api`, so it can point at a local mock. To call a new FPL endpoint, add a constant there, not a setting.
 - `.env` is gitignored; `.env.example` is committed and must stay in sync with it.
 
 ### Database

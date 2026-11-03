@@ -1,11 +1,12 @@
 # pytest fixtures are injected as same-named arguments.
 # pylint: disable=redefined-outer-name
+import re
 from datetime import datetime, timezone
 
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import select
-from src.db.models import Event
+from src.db.models import Event, Team
 from src.models.element import ElementResponse
 from src.models.event import EventResponse
 from src.models.fixture import FixtureResponse
@@ -128,6 +129,25 @@ def test_get_team_by_name_not_found(session):
 
 def test_get_team_by_name_is_case_sensitive(session):
     assert teams.get_team_by_name(session, "arsenal") is None
+
+
+def test_teams_have_kit_colors(session):
+    arsenal = teams.get_teams(session)[0]
+    assert (arsenal.primary_color, arsenal.secondary_color) == ("#EF0107", "#FFFFFF")
+    assert teams.get_team_by_name(session, "Man City").primary_color == "#6CABDD"
+
+
+def test_team_without_kit_colors_gets_null(session):
+    session.get(Team, 1).code = 999  # e.g. a promoted club not added yet
+    session.flush()
+    arsenal = teams.get_teams(session)[0]
+    assert (arsenal.primary_color, arsenal.secondary_color) == (None, None)
+
+
+def test_kit_colors_cover_a_full_league_in_hex():
+    assert len(teams.KIT_COLORS) == 20
+    for colors in teams.KIT_COLORS.values():
+        assert all(re.fullmatch(r"#[0-9A-F]{6}", color) for color in colors), colors
 
 
 # --- fixtures -------------------------------------------------------------
