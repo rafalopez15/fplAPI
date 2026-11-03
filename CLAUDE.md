@@ -75,6 +75,7 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
 - **`DataSession`** (`src/util/database.py`) is the request's session from `get_session`, after `get_data_session` checks that a bootstrap sync has succeeded. Tests override `get_session`.
 - **Services** are plain functions that take the session first. They query with the ORM models and return Pydantic models (built with `model_validate(row)`), or `None`/`[]` when nothing matches. Lists are in FPL id order.
 - **Response models** use `from_attributes=True`. `EventResponse` rebuilds FPL's `top_element_info` object from the `top_element` and `top_element_points` columns.
+- **Kit colors** (`primary_color`, `secondary_color` on teams) are the one thing FPL doesn't provide. They come from `KIT_COLORS` in `src/services/teams.py`, keyed by FPL's team `code` (the same for a club every season, unlike `id`), not from the database. A club missing from it gets `null`. **Each summer, add the promoted clubs** (their `code` is on `/api/teams` once FPL publishes the new season); `test_kit_colors_cover_a_full_league_in_hex` expects 20 entries, so drop the relegated ones too.
 - **Data refresh:** `src/jobs/sync_bootstrap.py` upserts bootstrap-static and FPL's `/fixtures/` into Postgres every hour (GitHub Actions), in one transaction. Nothing is fetched at startup or per request. `/healthcheck` reports the last successful sync as `last_sync`.
 
 ## Design decisions
