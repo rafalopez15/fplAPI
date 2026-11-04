@@ -133,7 +133,9 @@ def test_swap_undone_in_a_normal_week_is_all_churn():
     assert [r["is_churn"] for r in rows] == [True, True]
 
 
-def test_without_points_data_churn_is_still_flagged_but_nothing_is_built():
+def test_without_points_data_an_unpairable_week_keeps_fpl_rows_as_they_are():
+    # Pairing 12 for 11 needs positions. Flagging both rows as churn would hide
+    # that change from the app, so neither is flagged.
     rows = with_net_points(
         [transfer(12, 10, 8, minute=5), transfer(10, 11, 8, minute=1),
          transfer(14, 15, 7)],
@@ -141,8 +143,19 @@ def test_without_points_data_churn_is_still_flagged_but_nothing_is_built():
         None,
     )
     assert [(r["element_in"], r["is_churn"]) for r in rows] == [
-        (12, True), (10, True), (14, False)]
+        (12, False), (10, False), (14, False)]
     assert all(net(r) == (None, None, None) for r in rows)
+
+
+def test_without_points_data_churn_that_hides_nothing_is_still_flagged():
+    rows = with_net_points(
+        [transfer(12, 13, 8, minute=3), transfer(11, 10, 8, minute=2),
+         transfer(10, 11, 8, minute=1)],
+        set(),
+        None,
+    )
+    assert [(r["element_in"], r["is_churn"]) for r in rows] == [
+        (12, False), (11, True), (10, True)]
 
 
 # --- database ------------------------------------------------------------------
@@ -202,10 +215,19 @@ def test_built_rows_are_sorted_newest_first(seeded_session, fpl):
         (3, 2, True), (3, 1, False), (2, 1, True), (4, 5, False)]
 
 
-def test_free_hits_come_from_the_managers_chips(seeded_session, fpl):
+def test_free_hits_come_from_the_managers_chips(points, fpl):
+    points.add_all([
+        ElementEventPoints(element=1, event=9, total_points=1, minutes=90),
+        ElementEventPoints(element=2, event=9, total_points=5, minutes=90),
+    ])
+    points.flush()
+    fpl["fetch_manager_transfers"].return_value = [transfer(2, 1, 8)]
     fpl["fetch_manager_history"].return_value = {"chips": [
         {"name": "freehit", "event": 8}, {"name": "wildcard", "event": 3}]}
-    managers.get_transfers(1, seeded_session)  # runs; the rule itself is tested above
+
+    [row] = managers.get_transfers(1, points)
+    # Gameweek 8 only (13 - 2). Without the Free Hit it would run to 9: 18 - 3.
+    assert (row.points_in, row.points_out, row.net_points) == (13, 2, 11)
     fpl["fetch_manager_history"].assert_called_once_with(1)
 
 

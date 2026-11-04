@@ -96,6 +96,10 @@ def _gameweek(rows: list[dict], data: Optional[PointsData]) -> tuple[list, list,
                  for row in _pair_by_position(ins, outs, data.element_types)]
         real.extend(built)
         flagged.extend(built)
+    elif ins or outs:
+        # Pairing needs positions from the database. Without them, flagging churn
+        # would hide real changes, so this gameweek shows FPL's rows as they are.
+        flagged = [{**row, "is_churn": False} for row in rows]
     return flagged, real, sold
 
 
