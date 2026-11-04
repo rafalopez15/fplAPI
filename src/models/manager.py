@@ -29,13 +29,23 @@ class ManagerResponse(BaseModel):
 
 
 class TransferResponse(BaseModel):
-    """One transfer, from entry/{id}/transfers/. Costs are in tenths of a million."""
+    """One transfer, from entry/{id}/transfers/. Costs are in tenths of a million.
+
+    is_churn marks a swap the manager undid in the same gameweek, e.g. while planning
+    a Wildcard; the real transfers are the rest. Points are for the gameweeks the
+    player was owned, and null for churn, before the first gameweek is finished, or
+    when the stored points can't be read (services/transfer_points.py).
+    """
     element_in: int
     element_out: int
     event: int
     time: datetime
     element_in_cost: Optional[int] = None
     element_out_cost: Optional[int] = None
+    is_churn: bool = False
+    points_in: Optional[int] = None
+    points_out: Optional[int] = None
+    net_points: Optional[int] = None
 
 
 class GameweekHistory(BaseModel):
