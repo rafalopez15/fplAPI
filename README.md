@@ -92,15 +92,34 @@ Don't edit a migration that has already been applied: add a new one instead.
 
 When a change to `migrations/`, `src/db/` or `alembic.ini` reaches `main`, the **Migrate database** workflow applies it to Supabase with `alembic upgrade head`.
 
-Both workflows need the Supabase connection string as a repository secret:
-1. On GitHub, go to **Settings → Secrets and variables → Actions → New repository secret**.
-2. Name it `DATABASE_URL`, with the same value as `DATABASE_URL` in your `.env`.
+Both workflows have a job for production and one for [staging](#staging-database-for-previews). They need each database's session pooler connection string as a repository secret (**Settings → Secrets and variables → Actions → New repository secret**):
 
-Both can also be started by hand from the **Actions** tab (**Run workflow**). To run the sync locally against the database in your `.env`:
+| Secret | Value |
+|---|---|
+| `DATABASE_URL` | Production's session pooler URL, the same as `DATABASE_URL` in your `.env` |
+| `STAGING_DATABASE_URL` | Staging's session pooler URL |
+
+Both can also be started by hand from the **Actions** tab (**Run workflow**). Started from `main`, they run against production and staging; started from any other branch, against staging only. To run the sync locally against the database in your `.env`:
 
 ```bash
 python -m src.jobs.sync_bootstrap
 ```
+
+### Staging database (for previews)
+Vercel preview deployments use a second Supabase project, `fpl-api-staging`, so unmerged code never reads or writes production data. It's set up like production (free plan, us-east-2, Data API off, RLS from the migrations) and holds only test data, so it's safe to reset.
+
+- **Migrations:** a pull request that touches `migrations/`, `src/db/` or `alembic.ini` runs **Migrate database** against staging, then syncs staging with the PR's code, so its preview has the new schema and data. Production migrates only when the PR merges.
+- **Data:** the hourly sync also syncs staging (started by the same pg_cron trigger as production), which keeps the free project from pausing after a week without activity.
+- **Vercel:** `DATABASE_URL` for **Preview** is staging's transaction pooler URL; Production keeps production's.
+
+To set it up:
+1. In Supabase, create a project named `fpl-api-staging` in the same region as production. Turn off the Data API (**Project Settings → Data API**).
+2. Under **Connect**, copy both pooler URIs and change them as in the Database section (`postgresql+psycopg://`, `?sslmode=require`):
+   - **Session pooler** (`:5432`) → GitHub secret `STAGING_DATABASE_URL`.
+   - **Transaction pooler** (`:6543`) → Vercel `DATABASE_URL`, **Preview** environment only, marked **Sensitive**.
+3. Run **Migrate database** from the Actions tab on any branch: it creates the schema and runs the first sync on staging.
+
+**If staging gets ahead of `main`**, e.g. after a migration PR is closed without merging, the next migration PR fails with "Can't locate revision". Undo the abandoned migration by running `alembic downgrade <main's head revision>` with `DATABASE_URL` set to staging's session pooler URL, from the abandoned branch (which still has the migration file). Or recreate the staging project and repeat the setup. Two open PRs with migrations conflict on staging the same way; merge or rebase one first.
 
 ### Hourly trigger (Supabase pg_cron)
 GitHub runs scheduled workflows on a best-effort basis: on 2 November 2026 it ran 2 of about 27 hourly syncs. So Supabase starts the sync instead. Every hour at :17 UTC, a `pg_cron` job in the database uses `pg_net` to call GitHub's [workflow dispatch API](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event), the same thing the **Run workflow** button does. These runs show in Actions as `workflow_dispatch`, started by the token's owner.
@@ -188,7 +207,7 @@ In the Vercel project, under **Settings → Environment Variables**, set:
 
 | Variable | Value |
 |---|---|
-| `DATABASE_URL` | The **transaction pooler** URL, set for Production and Preview. Mark it **Sensitive**. |
+| `DATABASE_URL` | Production: production's **transaction pooler** URL. Preview: [staging's](#staging-database-for-previews). Mark both **Sensitive**. |
 
 Get it from **Connect → Transaction pooler** in Supabase and change it as in the Database section: `postgresql+psycopg://` at the start, `?sslmode=require` at the end. It ends in `:6543/postgres?sslmode=require`.
 
