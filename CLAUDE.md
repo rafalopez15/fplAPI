@@ -92,6 +92,17 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
 - `DATABASE_URL` (required) is a Supabase pooler URI with the scheme changed to `postgresql+psycopg://` and `?sslmode=require` added. Both poolers work over IPv4; the direct connection is IPv6-only. `DATABASE_CONNECT_TIMEOUT` (default 5s) is optional.
   - **The API on Vercel uses the transaction pooler (port 6543).** The session pooler (port 5432) gives each open client connection one of only 15 slots, and every warm Vercel instance, previews included, keeps its own pool open. On 3 November 2026 they took all 15 and the hourly sync couldn't connect. The transaction pooler shares server connections between transactions, so idle pools don't hold slots.
   - **The GitHub workflows (sync and migrate) and a local `.env` use the session pooler (port 5432),** through the `DATABASE_URL` repository secret. Vercel's variable and that secret are separate, so no code picks a URL.
+  - **Previews use a separate staging project, `fpl-api-staging` (FPL-41),** so unmerged code never touches production data. Which URL goes where:
+
+    | Where | Database | Pooler |
+    |---|---|---|
+    | Vercel Production `DATABASE_URL` | production | transaction (6543) |
+    | Vercel Preview `DATABASE_URL` | staging | transaction (6543) |
+    | GitHub secret `DATABASE_URL` | production | session (5432) |
+    | GitHub secret `STAGING_DATABASE_URL` | staging | session (5432) |
+    | Local `.env` | production | session (5432) |
+
+    Staging holds only test data and can be reset; the README's "Staging database" section covers setup and what to do if its schema gets ahead of `main`.
   - The transaction pooler can't keep prepared statements between transactions, so the engine sets `prepare_threshold=None` (psycopg prepares statements automatically otherwise). It works on both poolers.
 - **Connection pool:** `DATABASE_POOL_SIZE` (default 3) and `DATABASE_MAX_OVERFLOW` (default 2). Keep them small: every Vercel instance has its own pool, and Supabase's free plan allows only a few server connections in total. Anything that connects through the session pooler holds one of its 15 slots for as long as the connection is open.
 - Never print or log `DATABASE_URL`: it contains the password.
@@ -134,7 +145,7 @@ Use these status codes consistently:
 ### Hosting
 - Production runs on **Vercel** (Hobby plan: personal, non-commercial use only), decided in the FPL-25 spike. Vercel's zero-config FastAPI support serves the `app` in `main.py`; there's no Vercel-specific code.
 - `vercel.json` pins the region to `cle1` (Cleveland, AWS us-east-2, next to Supabase), and `.python-version` pins Python 3.13. Keep that file in step with CI's Python.
-- Vercel's only required environment variable is `DATABASE_URL` (marked Sensitive), the **transaction pooler** URI (port 6543) for both Production and Preview (see Database). Pushes to `main` deploy to production; PRs get preview URLs.
+- Vercel's only required environment variable is `DATABASE_URL` (marked Sensitive), a **transaction pooler** URI (port 6543): production's for Production, staging's for Preview (see Database). Pushes to `main` deploy to production; PRs get preview URLs, which are public (Vercel Authentication is off for previews so the iOS app can test against them).
 - Instances scale to zero, so the first request after idle has a cold start of a second or two. An always-warm instance needs Vercel Pro.
 - The `Dockerfile` (`python:3.13-slim`, runtime dependencies only, non-root) is for local runs and a future move to a container host such as Cloud Run, the fallback if the app goes commercial. Vercel doesn't use it. `.dockerignore` keeps `.env`, `env/`, tests and migrations out of the image; use `**/` patterns so they match in subfolders.
 
@@ -159,9 +170,10 @@ Use these status codes consistently:
   - **Pylint** lints, and **Tests** runs pytest with the 95% coverage gate against a Postgres 17 service container. They show as separate checks.
   - Each writes a summary table to the run page and to a Markdown file uploaded as an artifact: test pass rate and failures via `.github/scripts/summarize_tests.py`, pylint score and issues via `.github/scripts/summarize_pylint.py`. Both write through `summary_output.write_markdown()`.
   - **PR comment** (pull requests only, after both jobs, even if they fail) posts one comment with both summaries and edits it on later pushes. It finds the comment by the hidden `<!-- ci-report -->` marker, and is the only job with `pull-requests: write`.
-- Two more workflows use the Supabase database through the `DATABASE_URL` repository secret, and share the `database` concurrency group so they never overlap:
+- Two more workflows use the Supabase databases. Each has a `production` job (`DATABASE_URL` secret, concurrency group `database`) and a `staging` job (`STAGING_DATABASE_URL`, group `staging-database`), so the two databases never wait on each other and a sync never runs mid-migration on either. **Production jobs run only from `main`** (`if: github.ref == 'refs/heads/main'`): started by hand from another branch, a workflow touches staging only.
   - `sync-bootstrap.yml` runs the bootstrap sync hourly and on manual dispatch. GitHub's own scheduler skips most hourly runs, so a `pg_cron` job in Supabase starts the workflow at :17 every hour through GitHub's workflow dispatch API, with a fine-grained token kept in Supabase Vault. The workflow's `schedule` (cron `17 * * * *`) stays as a backup. The trigger lives only in Supabase, not in a migration (the test databases lack `pg_cron`, `pg_net` and Vault); the README's "Hourly trigger" section has the SQL and the token's expiry date.
-  - `migrate.yml` runs `alembic upgrade head` on pushes to `main` that touch `migrations/`, `src/db/` or `alembic.ini`, and on manual dispatch. Migrations reach Supabase this way, not from a laptop.
-  - Both need only the `DATABASE_URL` secret; every other setting has a default. Scheduled workflows only run from `main`.
+  - `migrate.yml` runs `alembic upgrade head` on pushes to `main` that touch `migrations/`, `src/db/` or `alembic.ini`, and on manual dispatch. Its staging job also runs on pull requests touching those paths (or the workflow itself), then syncs staging with the PR's code, so the preview has the new schema and data. Migrations reach Supabase this way, not from a laptop.
+  - The hourly sync runs its staging job too, which keeps staging's data current and the free project from pausing. A PR migration that main's sync code can't handle (e.g. a new `NOT NULL` column) makes the staging sync fail until the PR merges; production is unaffected.
+  - Each job needs only its database secret; every other setting has a default. Scheduled workflows only run from `main`.
 - `.pylintrc` turns off docstring checks and `too-few-public-methods`, and ignores `alembic.context` and `alembic.op` for member checks because they're populated at runtime. Migration files disable `invalid-name` on their first line, because Alembic requires names like `revision` and file names start with the revision id (the template in `migrations/script.py.mako` adds it). Test files disable `redefined-outer-name` (pytest fixtures) at the top of the file. Fix any other warnings rather than silencing them.
 - Runtime dependencies are pinned in `requirements.txt`; test and lint tools in `requirements-dev.txt`, which includes it.
