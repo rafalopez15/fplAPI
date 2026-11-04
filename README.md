@@ -150,7 +150,7 @@ order by start_time desc limit 5;
 select created, status_code, content from net._http_response
 order by created desc limit 5;
 ```
-`last_sync` in `/healthcheck` should never be much more than an hour old. To stop the trigger, run `select cron.unschedule('sync-bootstrap');`.
+`last_sync` in `/healthcheck` should never be much more than an hour old. `last_points_sync` moves only when a gameweek's bonus points are confirmed, so about once a week. To stop the trigger, run `select cron.unschedule('sync-bootstrap');`.
 
 ## ▶️ Running locally
 ```bash

@@ -70,6 +70,19 @@ def test_last_successful_sync_ignores_failed_and_history_runs(db_session):
     assert database.last_successful_sync(db_session) == finished
 
 
+def test_last_successful_sync_by_kind(db_session):
+    bootstrap = datetime(2026, 11, 2, 1, 17, tzinfo=timezone.utc)
+    points = datetime(2026, 11, 1, 3, 17, tzinfo=timezone.utc)
+    db_session.add_all([
+        SyncRun(kind="bootstrap", status="succeeded", finished_at=bootstrap),
+        SyncRun(kind="event_points", event_id=9, status="succeeded", finished_at=points),
+        SyncRun(kind="event_points", event_id=10, status="failed", finished_at=bootstrap),
+    ])
+    db_session.flush()
+    assert database.last_successful_sync(db_session, "event_points") == points
+    assert database.last_successful_sync(db_session) == bootstrap
+
+
 def test_last_successful_sync_is_none_before_any_sync(db_session):
     assert database.last_successful_sync(db_session) is None
 
@@ -86,8 +99,12 @@ def test_get_data_session_raises_before_the_first_sync(seeded_session):
 
 def test_get_last_sync_reads_through_last_successful_sync(monkeypatch):
     synced = datetime(2026, 11, 2, 1, 17, tzinfo=timezone.utc)
-    monkeypatch.setattr(database, "last_successful_sync", lambda session: synced)
+    kinds = []
+    monkeypatch.setattr(database, "last_successful_sync",
+                        lambda session, kind: kinds.append(kind) or synced)
     assert database.get_last_sync() == synced
+    assert database.get_last_sync("event_points") == synced
+    assert kinds == ["bootstrap", "event_points"]
 
 
 def test_get_last_sync_returns_none_when_unreachable(monkeypatch, caplog):

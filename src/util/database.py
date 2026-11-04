@@ -40,11 +40,11 @@ def get_session() -> Iterator[Session]:
         yield session
 
 
-def last_successful_sync(session: Session) -> Optional[datetime]:
-    """When the last successful bootstrap sync finished, or None if none has."""
+def last_successful_sync(session: Session, kind: str = "bootstrap") -> Optional[datetime]:
+    """When the last successful sync of this kind finished, or None if none has."""
     return session.scalar(
         select(func.max(SyncRun.finished_at)).where(
-            SyncRun.kind == "bootstrap", SyncRun.status == "succeeded"
+            SyncRun.kind == kind, SyncRun.status == "succeeded"
         )
     )
 
@@ -74,11 +74,11 @@ def is_database_reachable() -> bool:
         return False
 
 
-def get_last_sync() -> Optional[datetime]:
+def get_last_sync(kind: str = "bootstrap") -> Optional[datetime]:
     """last_successful_sync() with its own session, for /healthcheck. Never raises."""
     try:
         with Session(engine) as session:
-            return last_successful_sync(session)
+            return last_successful_sync(session, kind)
     except SQLAlchemyError as exc:
         logger.warning("Couldn't read the last sync time: %s", exc)
         return None
