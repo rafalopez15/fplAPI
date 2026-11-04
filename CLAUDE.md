@@ -52,11 +52,12 @@ src/
     managers.py          /managers/{id}, /managers/{id}/transfers, /managers/{id}/history,
                          /managers/{id}/picks?event= (live from FPL)
   services/              Business logic: queries that return Pydantic models
+    transfer_points.py   Net points per transfer, and Wildcard/Free Hit churn (is_churn)
   models/                Pydantic response models (ElementResponse, EventResponse, TeamResponse)
   db/
     models.py            SQLAlchemy ORM tables; Alembic autogenerates migrations from them
   jobs/
-    sync_bootstrap.py    Hourly job: upserts bootstrap-static into Postgres, records sync_runs
+    sync_bootstrap.py    Hourly job: upserts bootstrap-static, then finished gameweeks' points
   util/
     config.py            Reads .env (python-dotenv) into module-level constants
     database.py          Engine, session dependencies (DataSession), sync state, health checks
@@ -69,14 +70,14 @@ Dockerfile               Image for running the API locally (Vercel doesn't use i
 
 **Request flow:** router → service → SQLAlchemy query on Postgres → Pydantic response model.
 
-The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live through `fpl_client` (router → service → `fetch_*()` → FPL). Manager data is per user and can't be synced ahead of time, and live points change by the minute during matches. Vercel's CDN caches their successful responses (see Fetching), and they don't touch the database, so they work even when the sync is behind.
+The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live through `fpl_client` (router → service → `fetch_*()` → FPL). Manager data is per user and can't be synced ahead of time, and live points change by the minute during matches. Vercel's CDN caches their successful responses (see Fetching), and they don't touch the database, so they work even when the sync is behind. The one exception is `/transfers`, which also reads stored gameweek points (see Net points per transfer); it takes a plain `get_session`, not `DataSession`, and returns null points if the database can't be read.
 
 - **Routers** handle HTTP concerns only: path parameters, status codes, `HTTPException`. Endpoints are plain `def`, so FastAPI runs them in its thread pool and the blocking database calls don't stall the event loop. Each takes a `session: DataSession` and passes it to a service.
 - **`DataSession`** (`src/util/database.py`) is the request's session from `get_session`, after `get_data_session` checks that a bootstrap sync has succeeded. Tests override `get_session`.
 - **Services** are plain functions that take the session first. They query with the ORM models and return Pydantic models (built with `model_validate(row)`), or `None`/`[]` when nothing matches. Lists are in FPL id order.
 - **Response models** use `from_attributes=True`. `EventResponse` rebuilds FPL's `top_element_info` object from the `top_element` and `top_element_points` columns.
 - **Kit colors** (`primary_color`, `secondary_color` on teams) are the one thing FPL doesn't provide. They come from `KIT_COLORS` in `src/services/teams.py`, keyed by FPL's team `code` (the same for a club every season, unlike `id`), not from the database. A club missing from it gets `null`. **Each summer, add the promoted clubs** (their `code` is on `/api/teams` once FPL publishes the new season); `test_kit_colors_cover_a_full_league_in_hex` expects 20 entries, so drop the relegated ones too. Nothing flags a missing club automatically: the test only counts the map's entries and can't see FPL's clubs, so CI stays green while new clubs get `null`.
-- **Data refresh:** `src/jobs/sync_bootstrap.py` upserts bootstrap-static and FPL's `/fixtures/` into Postgres every hour (GitHub Actions), in one transaction. Nothing is fetched at startup or per request. `/healthcheck` reports the last successful sync as `last_sync`.
+- **Data refresh:** `src/jobs/sync_bootstrap.py` upserts bootstrap-static and FPL's `/fixtures/` into Postgres every hour (GitHub Actions), in one transaction. Then `sync_event_points()` stores every player's points for each gameweek that's `data_checked` (bonus confirmed, so final) and not stored yet, from `/event/{gw}/live/`: one `sync_runs` row (kind `event_points`, `event_id` set) and one transaction per gameweek, stopping at the first failure, so the next hour retries from there. It runs even if the bootstrap step failed. Nothing is fetched at startup or per request. `/healthcheck` reports the last successful bootstrap sync as `last_sync`, and the points step as `last_points_sync`.
 
 ## Design decisions
 
@@ -95,7 +96,7 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
 - **Connection pool:** `DATABASE_POOL_SIZE` (default 3) and `DATABASE_MAX_OVERFLOW` (default 2). Keep them small: every Vercel instance has its own pool, and Supabase's free plan allows only a few server connections in total. Anything that connects through the session pooler holds one of its 15 slots for as long as the connection is open.
 - Never print or log `DATABASE_URL`: it contains the password.
 - `migrations/env.py` reads the URL from `config.py`, never from `alembic.ini`, and escapes `%` for configparser. If a URL is already set (as the tests do), it keeps that one.
-- **Schema** (design in the FPL-7 spike's "Spike outcome" comment in Linear): `teams`, `element_types`, `elements`, `events`, `fixtures` (every match of the season, from `/fixtures/`), `player_fixture_history` (one row per player per fixture, from `/element-summary/{id}/`) and `sync_runs`.
+- **Schema** (design in the FPL-7 spike's "Spike outcome" comment in Linear): `teams`, `element_types`, `elements`, `events`, `fixtures` (every match of the season, from `/fixtures/`), `player_fixture_history` (one row per player per fixture, from `/element-summary/{id}/`; not filled yet, FPL-23), `element_event_points` (one row per player per finished gameweek: `total_points` and `minutes`, double gameweeks summed) and `sync_runs`.
   - `fixtures.started` is true from kickoff. FPL only sets `finished` once the gameweek's bonus points are confirmed, a day or more after the match, so "still to be played" means `started = false`.
   - Column names are FPL's field names, so rows map 1:1 onto the Pydantic models. `elements` columns match `ElementResponse`, including which are `NOT NULL`.
   - Ids are FPL's, never generated (`autoincrement=False`). Decimals are `numeric`, timestamps are `timestamptz`.
@@ -103,7 +104,7 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
 - **Row-level security:** Supabase's Data API is off, and every table has RLS enabled with no policies, as a second layer. Autogenerate doesn't handle RLS, so every migration that creates a table must add `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`. `tests/test_db.py` fails if a table lacks it.
 - **New migration:** change `src/db/models.py`, then autogenerate against the test database, not Supabase: `DATABASE_URL=$TEST_DATABASE_URL alembic revision --autogenerate -m "..."`. Review the file, add RLS for new tables, wrap lines over 100 characters, run the tests, then `alembic upgrade head` against Supabase.
 - SQLAlchemy calls are blocking: use plain `def` endpoints (FastAPI's thread pool), or `asyncio.to_thread` from async code, as `/healthcheck` does.
-- `/healthcheck` returns `{"status": "ok", "database": "ok" | "unavailable", "last_sync": <ISO timestamp> | null}`, always with 200, so a database outage doesn't make a host restart the app.
+- `/healthcheck` returns `{"status": "ok", "database": "ok" | "unavailable", "last_sync": <ISO timestamp> | null, "last_points_sync": <ISO timestamp> | null}`, always with 200, so a database outage doesn't make a host restart the app. `last_sync` is the last successful bootstrap sync (hourly); `last_points_sync` is the last gameweek whose points were stored, so it moves about weekly, a day or two after a gameweek's last match. If it's more than about 10 days old during the season, the points sync is failing and new transfers get null `net_points`.
 
 ### Fetching
 - All FPL calls go through `src/util/fpl_client.py`, with a timeout and a descriptive `User-Agent` (`HEADERS`).
@@ -111,6 +112,9 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
 - **Live endpoints:** `fetch_manager()`, `fetch_manager_transfers()`, `fetch_manager_history()`, `fetch_manager_picks()` and `fetch_event_live()` go through `_get_live_json()` and use the shorter `FPL_PROXY_TIMEOUT` (default 5s), because someone is waiting. They raise `FplNotFoundError` for FPL's 404 and `FplUnavailableError` for everything else, including timeouts, 429/5xx and FPL's HTML "the game is being updated" page.
 - **Picks:** FPL only publishes a squad once the gameweek's deadline has passed. Without `?event=`, `/picks` first calls `fetch_manager()` for the manager's `current_event` (two FPL calls), and returns 404 if there's none yet. FPL's 404 for a gameweek with no picks (before the manager joined, or not yet played) is also "Manager not found".
 - **Live points:** `/events/{id}/live` flattens FPL's `event/{gw}/live/` (about 475KB, ~30 stats and a breakdown per player) to `id`, `total_points` and `minutes` per player (about 27KB). FPL returns an empty list for a gameweek that hasn't started (200 `[]`) and 404 outside 1–38 (`"Event not found"`).
+- **Net points per transfer** (`src/services/transfer_points.py`, FPL-33; design doc on the Linear issue): `/transfers` adds `is_churn`, `points_in`, `points_out` and `net_points` to each row, and costs one more FPL call (`/history`, for Free Hit gameweeks).
+  - In Wildcard and Free Hit weeks FPL's list records every swap tried (55 rows for one Free Hit), so each gameweek is reduced to its real changes: players bought more often than sold, and sold more often than bought. Rows pairing a real in with a real out are real transfers; the rest are `is_churn`. Real changes no row pairs are paired by position (earliest bought with earliest sold) and returned as rows the API builds, with the incoming player's buy `time`.
+  - A transfer for gameweek N covers N until the gameweek before the player is sold again, or the latest stored gameweek. A Free Hit transfer covers its gameweek only and doesn't end an earlier one. Points are null for churn, before N is stored, and when the database can't be read. Pairing needs positions from the database too, so without it a gameweek with unpaired changes isn't flagged as churn at all: the app shows FPL's rows for that week, rather than hiding real changes.
 - **Caching:** the live routes set `Cache-Control: s-maxage=..., stale-while-revalidate=...` on successful responses, so Vercel's CDN serves repeats without calling FPL: 60s for the manager, transfers, picks and live points, 300s for history. Errors send `no-store`. An in-memory cache would be useless on Vercel, whose instances don't share memory and scale to zero.
 
 ### Error responses

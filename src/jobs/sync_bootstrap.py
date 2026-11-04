@@ -6,18 +6,36 @@ Upserts teams, element_types, elements, events and fixtures in one transaction, 
 a failed run leaves the previous data in place. Unchanged rows aren't rewritten, and rows
 are never deleted: players FPL drops stay for their history. Every run is
 recorded in sync_runs.
+
+Then stores each newly finished gameweek's points per player (element_event_points),
+one gameweek per transaction, so a failure there doesn't undo the bootstrap data.
 """
 import logging
 import sys
 from typing import Callable, Optional
 import requests
-from sqlalchemy import Engine, func, tuple_, update
+from sqlalchemy import Engine, func, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
-from src.db.models import Base, Element, ElementType, Event, Fixture, SyncRun, Team
+from src.db.models import (
+    Base,
+    Element,
+    ElementEventPoints,
+    ElementType,
+    Event,
+    Fixture,
+    SyncRun,
+    Team,
+)
 from src.util import database
-from src.util.fpl_client import fetch_bootstrap_static, fetch_fixtures
+from src.util.fpl_client import (
+    FplNotFoundError,
+    FplUnavailableError,
+    fetch_bootstrap_static,
+    fetch_event_live,
+    fetch_fixtures,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +52,8 @@ COLLECTIONS = (
 # Failures this job records and survives. Anything else is a bug and should crash.
 SYNC_ERRORS = (
     requests.exceptions.RequestException,
+    FplNotFoundError,
+    FplUnavailableError,
     SQLAlchemyError,
     KeyError,
     TypeError,
@@ -93,6 +113,24 @@ def describe(error: Exception) -> str:
     return str(getattr(error, "orig", None) or error)[:MAX_ERROR_LENGTH]
 
 
+def start_run(engine: Engine, kind: str, event_id: Optional[int] = None) -> int:
+    """Record a sync run as running and return its id."""
+    with Session(engine) as session, session.begin():
+        run = SyncRun(kind=kind, event_id=event_id, status="running")
+        session.add(run)
+        session.flush()
+        return run.id
+
+
+def finish_run(engine: Engine, run_id: int, status: str, error: Optional[str]) -> None:
+    with Session(engine) as session, session.begin():
+        session.execute(
+            update(SyncRun)
+            .where(SyncRun.id == run_id)
+            .values(status=status, error=error, finished_at=func.now())
+        )
+
+
 def sync_bootstrap(
     engine: Optional[Engine] = None,
     fetch: Callable[[], dict] = fetch_bootstrap_static,
@@ -104,11 +142,7 @@ def sync_bootstrap(
     database is unreachable.
     """
     engine = engine or database.engine
-    with Session(engine) as session, session.begin():
-        run = SyncRun(kind="bootstrap", status="running")
-        session.add(run)
-        session.flush()
-        run_id = run.id
+    run_id = start_run(engine, "bootstrap")
 
     try:
         # Both fetches happen before any write, so a failed fetch writes nothing.
@@ -123,13 +157,53 @@ def sync_bootstrap(
         status, error = "failed", describe(exc)
         logger.error("Bootstrap sync failed: %s", error)
 
-    with Session(engine) as session, session.begin():
-        session.execute(
-            update(SyncRun)
-            .where(SyncRun.id == run_id)
-            .values(status=status, error=error, finished_at=func.now())
-        )
+    finish_run(engine, run_id, status, error)
     return status == "succeeded"
+
+
+def gameweeks_to_store(engine: Engine) -> list[int]:
+    """Finished gameweeks (bonus confirmed) whose points aren't stored yet, in order."""
+    stored = select(ElementEventPoints.event).distinct()
+    with Session(engine) as session:
+        return list(session.scalars(
+            select(Event.id).where(Event.data_checked, Event.id.not_in(stored)).order_by(Event.id)
+        ))
+
+
+def sync_event_points(
+    engine: Optional[Engine] = None, fetch_live: Callable[[int], dict] = fetch_event_live
+) -> bool:
+    """Store every player's points for each newly finished gameweek.
+
+    A gameweek's points are final once FPL confirms its bonus (data_checked), so each
+    is fetched once. Every gameweek is its own run and transaction; the first
+    failure stops the job, and the next run retries from that gameweek. Returns
+    whether every gameweek succeeded.
+    """
+    engine = engine or database.engine
+    for event in gameweeks_to_store(engine):
+        run_id = start_run(engine, "event_points", event)
+        try:
+            rows = [
+                {
+                    "element": item["id"],
+                    "event": event,
+                    "total_points": item["stats"].get("total_points"),
+                    "minutes": item["stats"].get("minutes"),
+                }
+                for item in fetch_live(event)["elements"]
+            ]
+            with Session(engine) as session, session.begin():
+                written = upsert(session, ElementEventPoints, rows)
+            logger.info("Stored gameweek %s points: %s players (%s new or changed)",
+                        event, len(rows), written)
+            finish_run(engine, run_id, "succeeded", None)
+        except SYNC_ERRORS as exc:
+            error = describe(exc)
+            logger.error("Gameweek %s points sync failed: %s", event, error)
+            finish_run(engine, run_id, "failed", error)
+            return False
+    return True
 
 
 def main() -> int:
@@ -137,7 +211,10 @@ def main() -> int:
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
     try:
+        # The points sync runs even if the bootstrap one failed: it only needs
+        # events.data_checked, which an older bootstrap sync has already stored.
         succeeded = sync_bootstrap()
+        succeeded = sync_event_points() and succeeded
     except SQLAlchemyError as exc:
         logger.error("Could not record the sync run: %s", describe(exc))
         return 1

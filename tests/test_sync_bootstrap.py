@@ -8,8 +8,9 @@ import requests
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
-from src.db.models import Base, Element, Event, Fixture, SyncRun, Team
+from src.db.models import Base, Element, ElementEventPoints, Event, Fixture, SyncRun, Team
 from src.jobs import sync_bootstrap as job
+from src.util.fpl_client import FplUnavailableError
 from tests.conftest import (
     ELEMENT_TYPES,
     future_event,
@@ -257,12 +258,148 @@ def test_error_message_is_truncated(engine):
     assert len(sync_runs(engine)[0].error) == job.MAX_ERROR_LENGTH
 
 
+# --- gameweek points --------------------------------------------------------
+
+def finished_event(id_):
+    return make_event(id=id_, name=f"Gameweek {id_}", is_current=False, finished=True,
+                      data_checked=True)
+
+
+def live(*players):
+    """FPL's event/{gw}/live/ response for (id, total_points, minutes) players."""
+    return {"elements": [
+        {"id": id_, "stats": {"total_points": points, "minutes": minutes, "bps": 9},
+         "explain": [], "modified": False}
+        for id_, points, minutes in players
+    ]}
+
+
+class FakeLive:
+    """fetch_event_live stand-in that records which gameweeks were fetched."""
+    def __init__(self, response=None, error=None):
+        self.calls, self.response, self.error = [], response, error
+
+    def __call__(self, event):
+        self.calls.append(event)
+        if self.error:
+            raise self.error
+        return self.response or live((1, 5, 90), (2, 13, 90))
+
+
+@pytest.fixture
+def synced(engine, bootstrap):
+    """Bootstrap data with gameweek 8 finished and confirmed, 9 in progress, 10 to come."""
+    bootstrap["events"] = [finished_event(8), make_event(), future_event()]
+    run(engine, bootstrap)
+    return bootstrap
+
+
+def stored_points(engine):
+    with Session(engine) as session:
+        rows = session.scalars(select(ElementEventPoints).order_by(
+            ElementEventPoints.event, ElementEventPoints.element))
+        return [(r.element, r.event, r.total_points, r.minutes) for r in rows]
+
+
+def points_runs(engine):
+    return [(r.event_id, r.status) for r in sync_runs(engine) if r.kind == "event_points"]
+
+
+@pytest.mark.usefixtures("synced")
+def test_points_are_stored_for_confirmed_gameweeks_only(engine):
+    fetch = FakeLive()
+    assert job.sync_event_points(engine, fetch_live=fetch) is True
+
+    assert fetch.calls == [8]  # 9 isn't confirmed yet, 10 hasn't started
+    assert stored_points(engine) == [(1, 8, 5, 90), (2, 8, 13, 90)]
+    assert points_runs(engine) == [(8, "succeeded")]
+
+
+@pytest.mark.usefixtures("synced")
+def test_stored_gameweeks_are_not_fetched_again(engine):
+    job.sync_event_points(engine, fetch_live=FakeLive())
+    fetch = FakeLive()
+    assert job.sync_event_points(engine, fetch_live=fetch) is True
+    assert not fetch.calls
+    assert points_runs(engine) == [(8, "succeeded")]
+
+
+def test_newly_confirmed_gameweek_is_fetched(engine, synced):
+    job.sync_event_points(engine, fetch_live=FakeLive())
+    synced["events"][1] = finished_event(9)
+    run(engine, synced)
+
+    fetch = FakeLive(live((1, 2, 60)))
+    job.sync_event_points(engine, fetch_live=fetch)
+    assert fetch.calls == [9]
+    assert (1, 9, 2, 60) in stored_points(engine)
+
+
+def test_backfill_fetches_every_confirmed_gameweek_in_order(engine, synced):
+    synced["events"] = [finished_event(9), finished_event(8), future_event()]
+    run(engine, synced)
+    fetch = FakeLive()
+    job.sync_event_points(engine, fetch_live=fetch)
+    assert fetch.calls == [8, 9]
+
+
+def test_points_failure_is_recorded_and_keeps_bootstrap_data(engine, synced, caplog):
+    synced["events"] = [finished_event(8), finished_event(9), future_event()]
+    run(engine, synced)
+    fetch = FakeLive(error=FplUnavailableError("timed out"))
+
+    with caplog.at_level(logging.ERROR):
+        assert job.sync_event_points(engine, fetch_live=fetch) is False
+
+    assert fetch.calls == [8]  # stops at the first failure
+    assert not stored_points(engine)
+    [failed] = [r for r in sync_runs(engine) if r.kind == "event_points"]
+    assert (failed.event_id, failed.status, failed.error) == (8, "failed", "timed out")
+    assert count(engine, Element) == 2
+    assert "Gameweek 8 points sync failed: timed out" in caplog.text
+
+
+@pytest.mark.usefixtures("synced")
+def test_failed_gameweek_is_retried_next_run(engine):
+    job.sync_event_points(engine, fetch_live=FakeLive(error=FplUnavailableError("down")))
+    fetch = FakeLive()
+    assert job.sync_event_points(engine, fetch_live=fetch) is True
+    assert fetch.calls == [8]
+    assert points_runs(engine) == [(8, "failed"), (8, "succeeded")]
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        live((1, 5, 90), (999, 3, 90)),  # a player bootstrap-static doesn't have
+        {"oops": []},  # no elements
+    ],
+)
+@pytest.mark.usefixtures("synced")
+def test_bad_live_data_fails_the_gameweek_and_writes_nothing(engine, response):
+    assert job.sync_event_points(engine, fetch_live=FakeLive(response)) is False
+    assert not stored_points(engine)
+    assert points_runs(engine) == [(8, "failed")]
+
+
 # --- main ------------------------------------------------------------------
 
-@pytest.mark.parametrize("succeeded, exit_code", [(True, 0), (False, 1)])
-def test_main_exit_code(monkeypatch, succeeded, exit_code):
-    monkeypatch.setattr(job, "sync_bootstrap", lambda: succeeded)
+@pytest.mark.parametrize(
+    "bootstrap_ok, points_ok, exit_code",
+    [(True, True, 0), (False, True, 1), (True, False, 1)],
+)
+def test_main_exit_code(monkeypatch, bootstrap_ok, points_ok, exit_code):
+    monkeypatch.setattr(job, "sync_bootstrap", lambda: bootstrap_ok)
+    monkeypatch.setattr(job, "sync_event_points", lambda: points_ok)
     assert job.main() == exit_code
+
+
+def test_main_syncs_points_even_when_bootstrap_fails(monkeypatch):
+    points = []
+    monkeypatch.setattr(job, "sync_bootstrap", lambda: False)
+    monkeypatch.setattr(job, "sync_event_points", lambda: points.append(True) or True)
+    job.main()
+    assert points == [True]
 
 
 def test_main_fails_when_the_run_cant_be_recorded(monkeypatch, caplog):

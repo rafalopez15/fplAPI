@@ -4,8 +4,6 @@
 from unittest.mock import Mock
 
 import pytest
-from fastapi.testclient import TestClient
-from main import app
 from src.models.manager import (
     HistoryResponse,
     ManagerResponse,
@@ -32,9 +30,10 @@ FETCHES = {
 
 
 @pytest.fixture
-def api():
-    # These endpoints don't touch the database, so no seeded session is needed.
-    return TestClient(app)
+def api(client):
+    # Only /transfers reads the database (stored gameweek points); the seeded
+    # test database has none, so its points are null here. See test_transfer_points.
+    return client
 
 
 @pytest.fixture
@@ -61,8 +60,8 @@ def test_get_manager_service():
 
 
 @pytest.mark.usefixtures("fpl")
-def test_get_transfers_service_keeps_fpl_order():
-    result = managers.get_transfers(1)
+def test_get_transfers_service_keeps_fpl_order(seeded_session):
+    result = managers.get_transfers(1, seeded_session)
     assert all(isinstance(t, TransferResponse) for t in result)
     assert [t.event for t in result] == [9, 4]
 
@@ -100,12 +99,13 @@ def test_get_picks_service_returns_none_before_the_first_deadline(fpl):
     fpl["fetch_manager_picks"].assert_not_called()
 
 
-def test_services_pass_the_manager_id(fpl):
+def test_services_pass_the_manager_id(fpl, seeded_session):
     managers.get_manager(42)
-    managers.get_transfers(42)
+    managers.get_transfers(42, seeded_session)  # also fetches history, for Free Hits
     managers.get_history(42)
-    for name in ("fetch_manager", "fetch_manager_transfers", "fetch_manager_history"):
-        fpl[name].assert_called_once_with(42)
+    fpl["fetch_manager"].assert_called_once_with(42)
+    fpl["fetch_manager_transfers"].assert_called_once_with(42)
+    assert fpl["fetch_manager_history"].call_args_list == [((42,),), ((42,),)]
 
 
 # --- GET /api/managers/{id} --------------------------------------------------
@@ -141,6 +141,7 @@ def test_get_transfers(api):
         "element_in": 566, "element_out": 114, "event": 9,
         "time": "2026-10-31T10:08:30.794468Z",
         "element_in_cost": 50, "element_out_cost": 45,
+        "is_churn": False, "points_in": None, "points_out": None, "net_points": None,
     }
 
 
@@ -149,6 +150,7 @@ def test_get_transfers_empty(api, fpl):
     response = api.get("/api/managers/1/transfers")
     assert response.status_code == 200
     assert response.json() == []
+    fpl["fetch_manager_history"].assert_not_called()  # no transfers, no need for chips
 
 
 # --- GET /api/managers/{id}/history ------------------------------------------

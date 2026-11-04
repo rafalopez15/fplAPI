@@ -1,5 +1,6 @@
 from typing import Annotated, List, Optional
-from fastapi import APIRouter, HTTPException, Path, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
+from sqlalchemy.orm import Session
 from src.models.manager import (
     HistoryResponse,
     ManagerResponse,
@@ -7,6 +8,7 @@ from src.models.manager import (
     TransferResponse,
 )
 from src.services import managers
+from src.util.database import get_session
 from src.util.fpl_client import FplNotFoundError
 
 managers_router = APIRouter()
@@ -43,13 +45,20 @@ def get_manager(manager_id: ManagerId, response: Response) -> ManagerResponse:
 
 
 @managers_router.get("/managers/{manager_id}/transfers")
-def get_transfers(manager_id: ManagerId, response: Response) -> List[TransferResponse]:
-    """List a manager's transfers this season, newest first.
+def get_transfers(
+    manager_id: ManagerId,
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+) -> List[TransferResponse]:
+    """List a manager's transfers this season, newest first, with net points.
 
-    Returns 404 if FPL has no such manager, and 503 if FPL can't be reached.
+    Rows with is_churn are swaps undone in the same gameweek (e.g. while planning a
+    Wildcard); hide them to list only real transfers. Uses a plain session, not
+    DataSession, so the list still loads (with null points) when the database is
+    down. Returns 404 if FPL has no such manager, and 503 if FPL can't be reached.
     """
     try:
-        result = managers.get_transfers(manager_id)
+        result = managers.get_transfers(manager_id, session)
     except FplNotFoundError as exc:
         raise manager_not_found() from exc
     response.headers["Cache-Control"] = TRANSFERS_CACHE

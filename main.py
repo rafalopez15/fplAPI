@@ -54,14 +54,22 @@ async def healthcheck() -> dict[str, Optional[str]]:
     """Report that the process is up, whether the database is reachable, and when
     FPL data was last synced (null if never, or if it can't be read).
 
+    last_sync is the bootstrap sync, hourly. last_points_sync is the last gameweek
+    whose points were stored, so it only moves when a gameweek is confirmed: about
+    weekly, a day or two after the gameweek's last match.
+
     Always 200, so a database outage doesn't make a host restart the app.
     """
     reachable = await asyncio.to_thread(database.is_database_reachable)
-    last_sync = await asyncio.to_thread(database.get_last_sync) if reachable else None
+    last_sync = last_points_sync = None
+    if reachable:
+        last_sync = await asyncio.to_thread(database.get_last_sync)
+        last_points_sync = await asyncio.to_thread(database.get_last_sync, "event_points")
     return {
         "status": "ok",
         "database": "ok" if reachable else "unavailable",
         "last_sync": last_sync.isoformat() if last_sync else None,
+        "last_points_sync": last_points_sync.isoformat() if last_points_sync else None,
     }
 
 
