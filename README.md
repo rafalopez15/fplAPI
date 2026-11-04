@@ -88,7 +88,7 @@ To change the schema:
 Don't edit a migration that has already been applied: add a new one instead.
 
 ## ⏱️ Scheduled jobs (GitHub Actions)
-`src/jobs/sync_bootstrap.py` copies FPL's `bootstrap-static` (teams, positions, players and gameweeks) and the season's fixtures into the database. GitHub Actions runs it every hour, started by Supabase (see [Hourly trigger](#hourly-trigger-supabase-pg_cron)), and each run is recorded in the `sync_runs` table. A failed run leaves the previous data in place.
+`src/jobs/sync_bootstrap.py` copies FPL's `bootstrap-static` (teams, positions, players and gameweeks) and the season's fixtures into the database, then each finished gameweek's points per player (once per gameweek, after FPL confirms its bonus points; the first run backfills the season so far). GitHub Actions runs it every hour, started by Supabase (see [Hourly trigger](#hourly-trigger-supabase-pg_cron)), and each run is recorded in the `sync_runs` table. A failed run leaves the previous data in place.
 
 When a change to `migrations/`, `src/db/` or `alembic.ini` reaches `main`, the **Migrate database** workflow applies it to Supabase with `alembic upgrade head`.
 
