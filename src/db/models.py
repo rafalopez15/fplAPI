@@ -239,13 +239,28 @@ class PlayerFixtureHistory(Base):
     updated_at: Mapped[datetime] = updated_at()
 
 
+class ElementEventPoints(Base):
+    """One player's points in one finished gameweek, from /event/{gw}/live/.
+
+    A double gameweek's two matches are already summed. Synced once the gameweek's
+    bonus points are confirmed (events.data_checked), after which they don't change.
+    """
+    __tablename__ = "element_event_points"
+
+    element: Mapped[int] = mapped_column(ForeignKey("elements.id"), primary_key=True)
+    event: Mapped[int] = mapped_column(ForeignKey("events.id"), primary_key=True, index=True)
+    total_points: Mapped[Optional[int]]
+    minutes: Mapped[Optional[int]]
+    updated_at: Mapped[datetime] = updated_at()
+
+
 class SyncRun(Base):
     """One run of a sync job, so the API can report freshness and jobs can skip work."""
     __tablename__ = "sync_runs"
 
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
-    kind: Mapped[str]  # "bootstrap" or "history"
-    event_id: Mapped[Optional[int]]  # the gameweek a history run covered
+    kind: Mapped[str]  # "bootstrap", "event_points" or "history"
+    event_id: Mapped[Optional[int]]  # the gameweek an event_points or history run covered
     started_at: Mapped[datetime] = mapped_column(server_default=func.now())
     finished_at: Mapped[Optional[datetime]]
     status: Mapped[str]  # "running", "succeeded" or "failed"
