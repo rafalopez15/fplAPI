@@ -39,7 +39,8 @@ colima start && docker start fplapi-test-db  # local test database (setup in REA
 ## Architecture
 
 ```
-main.py                  App setup: exception handlers (503s), /healthcheck
+main.py                  App setup: exception handlers (503s), /healthcheck, private
+                         Cache-Control on /api/me
 alembic.ini              Alembic settings; the database URL is set in migrations/env.py
 migrations/              Alembic environment and versions/ (one file per migration)
 src/
@@ -51,14 +52,18 @@ src/
     fixtures.py          /fixtures (optional ?finished= and ?started= filters)
     managers.py          /managers/{id}, /managers/{id}/transfers, /managers/{id}/history,
                          /managers/{id}/picks?event= (live from FPL)
+    me.py                /me: the signed-in user's account (Supabase sign-in token)
   services/              Business logic: queries that return Pydantic models
     transfer_points.py   Net points per transfer, and Wildcard/Free Hit churn (is_churn)
-  models/                Pydantic response models (ElementResponse, EventResponse, TeamResponse)
+    profiles.py          Accounts: get_profile() creates the row on first call
+  models/                Pydantic response models (ElementResponse, EventResponse, TeamResponse,
+                         ProfileResponse)
   db/
     models.py            SQLAlchemy ORM tables; Alembic autogenerates migrations from them
   jobs/
     sync_bootstrap.py    Hourly job: upserts bootstrap-static, then finished gameweeks' points
   util/
+    auth.py              CurrentUser: checks the Supabase access token, returns the user id
     config.py            Reads .env (python-dotenv) into module-level constants
     database.py          Engine, session dependencies (DataSession), sync state, health checks
     fpl_client.py        All FPL calls: the sync job's fetches and the live ones (manager*, event_live)
@@ -71,6 +76,8 @@ Dockerfile               Image for running the API locally (Vercel doesn't use i
 **Request flow:** router → service → SQLAlchemy query on Postgres → Pydantic response model.
 
 The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live through `fpl_client` (router → service → `fetch_*()` → FPL). Manager data is per user and can't be synced ahead of time, and live points change by the minute during matches. Vercel's CDN caches their successful responses (see Fetching), and they don't touch the database, so they work even when the sync is behind. The one exception is `/transfers`, which also reads stored gameweek points (see Net points per transfer); it takes a plain `get_session`, not `DataSession`, and returns null points if the database can't be read.
+
+**Account routes** (`/api/me...`, FPL-11) are the signed-in user's own data: router → `CurrentUser` (the token) → service → Postgres. They take a plain `get_session`, since accounts don't depend on the FPL sync, and every query filters by the user id from the token. See Accounts and sign-in.
 
 - **Routers** handle HTTP concerns only: path parameters, status codes, `HTTPException`. Endpoints are plain `def`, so FastAPI runs them in its thread pool and the blocking database calls don't stall the event loop. Each takes a `session: DataSession` and passes it to a service.
 - **`DataSession`** (`src/util/database.py`) is the request's session from `get_session`, after `get_data_session` checks that a bootstrap sync has succeeded. Tests override `get_session`.
@@ -107,11 +114,11 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
 - **Connection pool:** `DATABASE_POOL_SIZE` (default 3) and `DATABASE_MAX_OVERFLOW` (default 2). Keep them small: every Vercel instance has its own pool, and Supabase's free plan allows only a few server connections in total. Anything that connects through the session pooler holds one of its 15 slots for as long as the connection is open.
 - Never print or log `DATABASE_URL`: it contains the password.
 - `migrations/env.py` reads the URL from `config.py`, never from `alembic.ini`, and escapes `%` for configparser. If a URL is already set (as the tests do), it keeps that one.
-- **Schema** (design in the FPL-7 spike's "Spike outcome" comment in Linear): `teams`, `element_types`, `elements`, `events`, `fixtures` (every match of the season, from `/fixtures/`), `player_fixture_history` (one row per player per fixture, from `/element-summary/{id}/`; not filled yet, FPL-23), `element_event_points` (one row per player per finished gameweek: `total_points` and `minutes`, double gameweeks summed) and `sync_runs`.
+- **Schema** (design in the FPL-7 spike's "Spike outcome" comment in Linear): `teams`, `element_types`, `elements`, `events`, `fixtures` (every match of the season, from `/fixtures/`), `player_fixture_history` (one row per player per fixture, from `/element-summary/{id}/`; not filled yet, FPL-23), `element_event_points` (one row per player per finished gameweek: `total_points` and `minutes`, double gameweeks summed), `sync_runs`, and `profiles` (accounts, written by the API; see Accounts and sign-in).
   - `fixtures.started` is true from kickoff. FPL only sets `finished` once the gameweek's bonus points are confirmed, a day or more after the match, so "still to be played" means `started = false`.
   - Column names are FPL's field names, so rows map 1:1 onto the Pydantic models. `elements` columns match `ElementResponse`, including which are `NOT NULL`.
-  - Ids are FPL's, never generated (`autoincrement=False`). Decimals are `numeric`, timestamps are `timestamptz`.
-  - Rows are upserted, never deleted. `events.most_selected` and the other player ids deliberately have no foreign key, so a missing player can't fail a sync.
+  - In the FPL tables, ids are FPL's, never generated (`autoincrement=False`). Decimals are `numeric`, timestamps are `timestamptz`.
+  - FPL rows are upserted, never deleted. `events.most_selected` and the other player ids deliberately have no foreign key, so a missing player can't fail a sync.
 - **Row-level security:** Supabase's Data API is off, and every table has RLS enabled with no policies, as a second layer. Autogenerate doesn't handle RLS, so every migration that creates a table must add `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`. `tests/test_db.py` fails if a table lacks it.
 - **New migration:** change `src/db/models.py`, then autogenerate against the test database, not Supabase: `DATABASE_URL=$TEST_DATABASE_URL alembic revision --autogenerate -m "..."`. Review the file, add RLS for new tables, wrap lines over 100 characters, run the tests, then `alembic upgrade head` against Supabase.
 - SQLAlchemy calls are blocking: use plain `def` endpoints (FastAPI's thread pool), or `asyncio.to_thread` from async code, as `/healthcheck` does.
@@ -128,6 +135,14 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
   - A transfer for gameweek N covers N until the gameweek before the player is sold again, or the latest stored gameweek. A Free Hit transfer covers its gameweek only and doesn't end an earlier one. Points are null for churn, before N is stored, and when the database can't be read. Pairing needs positions from the database too, so without it a gameweek with unpaired changes isn't flagged as churn at all: the app shows FPL's rows for that week, rather than hiding real changes.
 - **Caching:** the live routes set `Cache-Control: s-maxage=..., stale-while-revalidate=...` on successful responses, so Vercel's CDN serves repeats without calling FPL: 60s for the manager, transfers, picks and live points, 300s for history. Errors send `no-store`. An in-memory cache would be useless on Vercel, whose instances don't share memory and scale to zero.
 
+### Accounts and sign-in
+- **Accounts are optional** (product rule from FPL-11). FPL routes never read the `Authorization` header and never need an account, and viewing any team must stay that way. Accounts are for synced notes and following teams. Design doc: on FPL-11 in Linear.
+- **Sign-in is Supabase Auth** (email code for now; Apple and our own email domain come with FPL-55). The app sends the access token as `Authorization: Bearer`, and `CurrentUser` (`src/util/auth.py`) checks it locally against `{SUPABASE_URL}/auth/v1/.well-known/jwks.json`: the signature with `ES256`/`RS256` only (never the token's own `alg`, so HS256 and forged tokens fail), `exp`, `aud == "authenticated"` and `iss == {SUPABASE_URL}/auth/v1`. It returns the token's `sub` as a `UUID`. PyJWT's `PyJWKClient` caches the key set for 5 minutes and refetches early for an unknown key id, with a 30s cooldown. Don't turn on its `cache_keys`: that caches each key with no expiry, so a key revoked in Supabase would keep working on warm instances.
+- **Anonymous sign-ins stay off** in Supabase (the default). Supabase gives anonymous users `aud: "authenticated"` too, so `CurrentUser` would accept them and `/api/me` would create profiles for them. If they're ever wanted, reject `is_anonymous: true` in `CurrentUser` first.
+- **`SUPABASE_URL`** is optional. Unset, account routes return 503 and nothing else changes. It's per environment: previews accept only staging's tokens, so iOS Debug builds pointed at a preview sign in against staging.
+- **`profiles`** has one row per account (`id` = the Supabase user id, `created_at`), created by the first `GET /api/me`. It has no foreign key to `auth.users`, because the test database has no `auth` schema; deleting an account goes through the API (FPL-51). Later account tables reference `profiles` with `ON DELETE CASCADE`.
+- **Never cached:** a middleware in `main.py` sets `Cache-Control: private, no-store` on every response under `/api/me`, errors included (except an unhandled 500, which Starlette sends from outside the middleware with no `Cache-Control`; the CDN doesn't cache it either), so Vercel's CDN can't serve one user's data to another. `test_every_account_response_is_private` walks every `/api/me` route and method; a new account route is covered automatically.
+
 ### Error responses
 Use these status codes consistently:
 
@@ -138,6 +153,8 @@ Use these status codes consistently:
 | Single-item lookup or filter finds nothing | **404** with a resource-specific detail, e.g. `"Team not found"`. Unknown FPL managers: `"Manager not found"`, and gameweeks FPL doesn't have on `/live`: `"Event not found"`, both with `no-store` |
 | Collection endpoint with no items | **200** with `[]` |
 | Invalid path parameter type | **422** (FastAPI default) |
+| Account route without a valid sign-in token (missing, malformed, expired, wrong `aud`/`iss`, forged, or HS256) | **401** `"Not signed in"`, with `WWW-Authenticate: Bearer` |
+| Account route when `SUPABASE_URL` isn't set, or Supabase's keys can't be fetched | **503** `"Sign-in is unavailable right now"` |
 
 ### Logging
 - Use `logging.getLogger(__name__)` with `%s` placeholders, e.g. `logger.info("msg: %s", value)`. Never pass extra arguments without a placeholder: pytest's log capture raises on that.
@@ -145,7 +162,7 @@ Use these status codes consistently:
 ### Hosting
 - Production runs on **Vercel** (Hobby plan: personal, non-commercial use only), decided in the FPL-25 spike. Vercel's zero-config FastAPI support serves the `app` in `main.py`; there's no Vercel-specific code.
 - `vercel.json` pins the region to `cle1` (Cleveland, AWS us-east-2, next to Supabase), and `.python-version` pins Python 3.13. Keep that file in step with CI's Python.
-- Vercel's only required environment variable is `DATABASE_URL` (marked Sensitive), a **transaction pooler** URI (port 6543): production's for Production, staging's for Preview (see Database). Pushes to `main` deploy to production; PRs get preview URLs, which are public (Vercel Authentication is off for previews so the iOS app can test against them).
+- Vercel's only required environment variable is `DATABASE_URL` (marked Sensitive), a **transaction pooler** URI (port 6543): production's for Production, staging's for Preview (see Database). `SUPABASE_URL` is set for Preview (staging's project URL); Production gets production's with FPL-55. Pushes to `main` deploy to production; PRs get preview URLs, which are public (Vercel Authentication is off for previews so the iOS app can test against them).
 - Instances scale to zero, so the first request after idle has a cold start of a second or two. An always-warm instance needs Vercel Pro.
 - The `Dockerfile` (`python:3.13-slim`, runtime dependencies only, non-root) is for local runs and a future move to a container host such as Cloud Run, the fallback if the app goes commercial. Vercel doesn't use it. `.dockerignore` keeps `.env`, `env/`, tests and migrations out of the image; use `**/` patterns so they match in subfolders.
 
@@ -158,6 +175,7 @@ Use these status codes consistently:
   - `seeded_session` loads a small dataset into the test database through the sync job's `to_row()`: 2 teams, 4 positions, 3 players (Saka, Haaland, Palmer), gameweeks 8 to 10 and a successful sync run. `client` is a `TestClient` whose requests use that session. Change data in a test by editing rows in `seeded_session`.
   - The autouse fixture `block_network` makes any real `requests.get` call fail the test. Mock it with `monkeypatch` when a test needs a response.
   - The autouse fixture `block_database` does the same for `database.engine.connect`. Patch `database.is_database_reachable` (or `engine.connect`) when a test hits `/healthcheck`.
+  - `SUPABASE_URL` is forced empty, so sign-in is off. `tests/test_auth.py`'s `jwks` fixture turns it on with a local EC key pair and a fake JWKS client; `make_token()` signs Supabase-shaped tokens with it. Tests never call Supabase.
   - Database tests use a real Postgres from `TEST_DATABASE_URL` (in `.env` locally, a service container in CI). `db_engine` migrates it from scratch once per run, and `db_session` rolls back each test's changes, even after `commit()`. The fixture refuses a Supabase URL. Without `TEST_DATABASE_URL`, the database tests fail with setup instructions.
 - Routes are tested with `fastapi.testclient.TestClient` (the `client` fixture). Async code is tested with `asyncio.run(...)`, so pytest-asyncio isn't needed.
 - `config.py` import-time behavior is tested by running it as a fresh module (`load_fresh_config`), so the real module stays untouched.

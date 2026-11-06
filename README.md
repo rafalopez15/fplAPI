@@ -44,6 +44,7 @@ alembic upgrade head           # create or update the database schema
 | `DATABASE_CONNECT_TIMEOUT` | No | Seconds before a database connection attempt times out (default 5) |
 | `DATABASE_POOL_SIZE` | No | Database connections each process keeps open (default 3) |
 | `DATABASE_MAX_OVERFLOW` | No | Extra connections allowed under load (default 2) |
+| `SUPABASE_URL` | No | The Supabase project whose sign-in tokens `/api/me` accepts, e.g. `https://<ref>.supabase.co`. Without it, account routes return 503 (see Sign-in) |
 | `TEST_DATABASE_URL` | For tests | Local Postgres used by the test suite (see Tests and linting) |
 
 The app won't start if a required variable is missing.
@@ -110,7 +111,8 @@ Vercel preview deployments use a second Supabase project, `fpl-api-staging`, so 
 
 - **Migrations:** a pull request that touches `migrations/`, `src/db/` or `alembic.ini` runs **Migrate database** against staging, then syncs staging with the PR's code, so its preview has the new schema and data. Production migrates only when the PR merges.
 - **Data:** the hourly sync also syncs staging (started by the same pg_cron trigger as production), which keeps the free project from pausing after a week without activity.
-- **Vercel:** `DATABASE_URL` for **Preview** is staging's transaction pooler URL; Production keeps production's.
+- **Vercel:** `DATABASE_URL` for **Preview** is staging's transaction pooler URL, and `SUPABASE_URL` for **Preview** is staging's project URL. Production keeps production's.
+- **Sign-in:** previews only accept tokens from staging's Supabase Auth, so an iOS Debug build pointed at a preview signs in against staging (see Sign-in).
 
 To set it up:
 1. In Supabase, create a project named `fpl-api-staging` in the same region as production. Turn off the Data API (**Project Settings → Data API**).
@@ -120,6 +122,25 @@ To set it up:
 3. Run **Migrate database** from the Actions tab on any branch: it creates the schema and runs the first sync on staging.
 
 **If staging gets ahead of `main`**, e.g. after a migration PR is closed without merging, the next migration PR fails with "Can't locate revision". Undo the abandoned migration by running `alembic downgrade <main's head revision>` with `DATABASE_URL` set to staging's session pooler URL, from the abandoned branch (which still has the migration file). Or recreate the staging project and repeat the setup. Two open PRs with migrations conflict on staging the same way; merge or rebase one first.
+
+### Sign-in (Supabase Auth)
+Account routes (`/api/me...`) need a Supabase access token in `Authorization: Bearer <token>`. The API checks it against the project's public keys at `<SUPABASE_URL>/auth/v1/.well-known/jwks.json`, which must be asymmetric (ES256 or RSA): **Project Settings → JWT Keys**. FPL routes never look at the token. Design and decisions: the FPL-11 design doc in Linear.
+
+Sign-in is a 6-digit code by email, set up on staging only for now (FPL-47). Production's setup, Sign in with Apple and email from our own domain come with FPL-55, before TestFlight.
+
+Staging's setup:
+- **Authentication → Sign In / Providers → Email:** on, Confirm email on, OTP length 6, OTP expiry 600 seconds.
+- **Authentication → Emails → SMTP Settings:** custom SMTP through Resend's test sender, because Supabase only lets you edit templates with custom SMTP. Sender `onboarding@resend.dev`, host `smtp.resend.com`, port `465`, username `resend`, password a Resend API key with sending access. The test sender only delivers to the address the Resend account was created with, and Gmail files it as spam until marked otherwise. The sender address must be `onboarding@resend.dev`: any other domain fails with `550 ... domain is not verified`.
+- **Authentication → Emails → Templates:** **Confirm signup** (sent on a first sign-in) and **Magic Link** (later ones) send `{{ .Token }}` instead of the link.
+
+To check sign-in works without the app, request a code, then exchange it for a session. The publishable key is under **Project Settings → API Keys**; run these in your own terminal, not anywhere they're logged:
+```bash
+curl -i https://<ref>.supabase.co/auth/v1/otp -H "apikey: $KEY" -H "Content-Type: application/json" \
+  -d '{"email": "<address>", "create_user": true}'
+curl -s https://<ref>.supabase.co/auth/v1/verify -H "apikey: $KEY" -H "Content-Type: application/json" \
+  -d '{"type": "email", "email": "<address>", "token": "<code>"}'
+```
+The second returns a JSON session; its `access_token` works as the Bearer token for `/api/me` on a preview.
 
 ### Hourly trigger (Supabase pg_cron)
 GitHub runs scheduled workflows on a best-effort basis: on 2 November 2026 it ran 2 of about 27 hourly syncs. So Supabase starts the sync instead. Every hour at :17 UTC, a `pg_cron` job in the database uses `pg_net` to call GitHub's [workflow dispatch API](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event), the same thing the **Run workflow** button does. These runs show in Actions as `workflow_dispatch`, started by the token's owner.
@@ -208,12 +229,13 @@ In the Vercel project, under **Settings → Environment Variables**, set:
 | Variable | Value |
 |---|---|
 | `DATABASE_URL` | Production: production's **transaction pooler** URL. Preview: [staging's](#staging-database-for-previews). Mark both **Sensitive**. |
+| `SUPABASE_URL` | Optional. Preview: staging's project URL (`https://<ref>.supabase.co`). Production: production's, once its sign-in is set up (FPL-55). Not secret. |
 
 Get it from **Connect → Transaction pooler** in Supabase and change it as in the Database section: `postgresql+psycopg://` at the start, `?sslmode=require` at the end. It ends in `:6543/postgres?sslmode=require`.
 
 Vercel uses the transaction pooler, not the session pooler in `.env`. The session pooler gives each open connection one of only 15 slots, and every warm Vercel instance keeps a few connections open, so they can fill every slot and lock the hourly sync out. The transaction pooler shares connections between requests. The GitHub workflows and local runs stay on the session pooler.
 
-That's the only required setting; the others have defaults. After a deploy, `https://<project>.vercel.app/healthcheck` should return `"database": "ok"` with a recent `last_sync`.
+`DATABASE_URL` is the only required setting; the others have defaults. After a deploy, `https://<project>.vercel.app/healthcheck` should return `"database": "ok"` with a recent `last_sync`.
 
 The first request after a few idle minutes takes a second or two while Vercel starts an instance. Migrations and the hourly sync still run from GitHub Actions, not Vercel.
 

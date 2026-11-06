@@ -5,6 +5,9 @@ import os
 # Config is read at import time, so make sure it exists before importing src.
 # This keeps the suite independent of a local .env file (e.g. in CI).
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://test:test@localhost:5432/test")
+# Sign-in stays off unless a test turns it on (test_auth.py's jwks fixture), even if
+# .env sets it. load_dotenv doesn't override variables that are already set.
+os.environ["SUPABASE_URL"] = ""
 
 from pathlib import Path  # pylint: disable=wrong-import-position
 

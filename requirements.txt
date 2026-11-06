@@ -3,5 +3,6 @@ fastapi[standard]==0.115.4
 psycopg[binary]==3.3.6
 pydantic==2.9.2
 python-dotenv==1.0.1
+PyJWT[crypto]==2.15.1
 requests==2.32.3
 sqlalchemy==2.1.6

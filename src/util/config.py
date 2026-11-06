@@ -33,3 +33,6 @@ DATABASE_CONNECT_TIMEOUT = int(os.getenv("DATABASE_CONNECT_TIMEOUT", "5"))
 # allows only a few connections in total.
 DATABASE_POOL_SIZE = int(os.getenv("DATABASE_POOL_SIZE", "3"))
 DATABASE_MAX_OVERFLOW = int(os.getenv("DATABASE_MAX_OVERFLOW", "2"))
+# The Supabase project whose sign-in tokens the account routes accept, e.g.
+# https://<ref>.supabase.co. None when unset: account routes then return 503.
+SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/") or None
