@@ -132,3 +132,19 @@ def test_proxy_timeout_defaults_to_5(monkeypatch):
 def test_proxy_timeout_from_env(monkeypatch):
     monkeypatch.setenv("FPL_PROXY_TIMEOUT", "2.5")
     assert load_fresh_config(monkeypatch).FPL_PROXY_TIMEOUT == 2.5
+
+
+def test_supabase_url_defaults_to_none(monkeypatch):
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    assert load_fresh_config(monkeypatch).SUPABASE_URL is None
+
+
+@pytest.mark.parametrize("value", ["", "  "])
+def test_empty_supabase_url_is_none(monkeypatch, value):
+    monkeypatch.setenv("SUPABASE_URL", value)
+    assert load_fresh_config(monkeypatch).SUPABASE_URL is None
+
+
+def test_supabase_url_strips_whitespace_and_trailing_slash(monkeypatch):
+    monkeypatch.setenv("SUPABASE_URL", " https://test-ref.supabase.co/ ")
+    assert load_fresh_config(monkeypatch).SUPABASE_URL == "https://test-ref.supabase.co"
