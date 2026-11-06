@@ -1,5 +1,5 @@
 """SQLAlchemy tables: the FPL data, synced from FPL by the jobs and read by the API,
-and the accounts (Profile), written by the API.
+and the accounts (Profile, UserTeam), written by the API.
 
 FPL tables' column names match FPL's field names, so rows map 1:1 onto the Pydantic
 response models. Ids are FPL's own, never generated here. FPL tables are only
@@ -9,7 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
-from sqlalchemy import DateTime, ForeignKey, Identity, MetaData, Numeric, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Identity, MetaData, Numeric, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -279,4 +279,21 @@ class Profile(Base):
     __tablename__ = "profiles"
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class UserTeam(Base):
+    """An FPL team on an account: one the user runs ("mine") or follows.
+
+    The key (user_id, manager_id) makes a team one or the other. manager_id is FPL's
+    id, so the team's manager needn't have an account.
+    """
+    __tablename__ = "user_teams"
+    __table_args__ = (CheckConstraint("relation IN ('mine', 'following')", name="relation"),)
+
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True
+    )
+    manager_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    relation: Mapped[str]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

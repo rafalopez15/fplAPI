@@ -9,11 +9,15 @@ os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://test:test@localhost:
 # .env sets it. load_dotenv doesn't override variables that are already set.
 os.environ["SUPABASE_URL"] = ""
 
+import time  # pylint: disable=wrong-import-position
 from pathlib import Path  # pylint: disable=wrong-import-position
+from types import SimpleNamespace  # pylint: disable=wrong-import-position
 
+import jwt  # pylint: disable=wrong-import-position
 import pytest  # pylint: disable=wrong-import-position
 from alembic import command  # pylint: disable=wrong-import-position
 from alembic.config import Config  # pylint: disable=wrong-import-position
+from cryptography.hazmat.primitives.asymmetric import ec  # pylint: disable=wrong-import-position
 from fastapi.testclient import TestClient  # pylint: disable=wrong-import-position
 from sqlalchemy import create_engine, func  # pylint: disable=wrong-import-position
 from sqlalchemy.orm import Session  # pylint: disable=wrong-import-position
@@ -27,7 +31,7 @@ from src.db.models import (  # pylint: disable=wrong-import-position
     Team,
 )
 from src.jobs.sync_bootstrap import to_row  # pylint: disable=wrong-import-position
-from src.util import database  # pylint: disable=wrong-import-position
+from src.util import auth, database  # pylint: disable=wrong-import-position
 
 
 def make_element(**overrides):
@@ -303,6 +307,67 @@ def client(seeded_session):
     app.dependency_overrides[database.get_session] = lambda: seeded_session
     yield TestClient(app)
     app.dependency_overrides.clear()
+
+
+# --- sign-in -----------------------------------------------------------------
+
+ISSUER = "https://test-ref.supabase.co/auth/v1"
+KEY_ID = "test-key"
+USER_ID = "6f1d3c2a-8b4e-4f5a-9c7d-1e2f3a4b5c6d"
+
+
+class FakeJwksClient:
+    """Stands in for PyJWKClient: serves one public key, or raises a set error."""
+
+    uri = f"{ISSUER}/.well-known/jwks.json"
+
+    def __init__(self, public_key, error=None):
+        self.public_key = public_key
+        self.error = error
+
+    def get_signing_key_from_jwt(self, token):
+        if self.error:
+            raise self.error
+        if jwt.get_unverified_header(token).get("kid") != KEY_ID:
+            raise jwt.PyJWKClientError("Unable to find a signing key that matches")
+        return SimpleNamespace(key=self.public_key)
+
+
+@pytest.fixture
+def signing_key():
+    return ec.generate_private_key(ec.SECP256R1())
+
+
+@pytest.fixture
+def jwks(monkeypatch, signing_key):
+    """Turn sign-in on, as if SUPABASE_URL were set, with a local key pair."""
+    client = FakeJwksClient(signing_key.public_key())
+    monkeypatch.setattr(auth, "ISSUER", ISSUER)
+    monkeypatch.setattr(auth, "jwks_client", client)
+    return client
+
+
+def make_token(key, algorithm="ES256", headers=None, **claims):
+    """A Supabase-shaped access token for USER_ID (or sub). Claims set to None are
+    left out."""
+    payload = {
+        "sub": USER_ID, "aud": "authenticated",
+        "iss": ISSUER, "exp": int(time.time()) + 3600, "role": "authenticated",
+        "email": "fpl.social.test@gmail.com", **claims,
+    }
+    payload = {name: value for name, value in payload.items() if value is not None}
+    return jwt.encode(payload, key, algorithm=algorithm, headers={"kid": KEY_ID, **(headers or {})})
+
+
+def bearer(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def signed_in(jwks, signing_key):  # pylint: disable=unused-argument
+    """Headers for a signed-in user: signed_in() for USER_ID, signed_in(sub) for
+    anyone else."""
+    return lambda sub=USER_ID: bearer(make_token(signing_key, sub=str(sub)))
 
 
 @pytest.fixture(autouse=True)

@@ -22,7 +22,11 @@ HISTORY_CACHE = "s-maxage=300, stale-while-revalidate=600"
 PICKS_CACHE = "s-maxage=60, stale-while-revalidate=300"
 NO_STORE = {"Cache-Control": "no-store"}
 
-ManagerId = Annotated[int, Path(gt=0, description="The FPL manager (entry) id")]
+# Capped at Postgres's integer maximum, so a bigger id is a 422, not a 500 from the
+# query. FPL ids are around 10 million.
+ManagerId = Annotated[
+    int, Path(gt=0, le=2_147_483_647, description="The FPL manager (entry) id")
+]
 
 
 def manager_not_found() -> HTTPException:
