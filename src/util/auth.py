@@ -72,7 +72,8 @@ def get_current_user(
         )
         return UUID(claims["sub"])
     except (jwt.PyJWKClientConnectionError, jwt.PyJWKSetError) as exc:
-        logger.warning("Couldn't fetch Supabase's signing keys: %s", exc)
+        # The URL isn't secret, and a wrong SUPABASE_URL shows up here as a 401.
+        logger.warning("Couldn't fetch Supabase's signing keys from %s: %s", jwks_client.uri, exc)
         raise sign_in_unavailable() from exc
     # PyJWKClientError here is a key id Supabase doesn't have: a forged token.
     except (jwt.InvalidTokenError, jwt.PyJWKClientError, ValueError) as exc:

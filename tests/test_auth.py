@@ -23,6 +23,8 @@ KEY_ID = "test-key"
 class FakeJwksClient:
     """Stands in for PyJWKClient: serves one public key, or raises a set error."""
 
+    uri = f"{ISSUER}/.well-known/jwks.json"
+
     def __init__(self, public_key, error=None):
         self.public_key = public_key
         self.error = error
@@ -129,11 +131,13 @@ def test_legacy_shared_secret_token_is_401(client):
     jwt.PyJWKClientConnectionError("timed out"),
     jwt.PyJWKSetError("The JWK Set did not contain any usable keys"),
 ])
-def test_unreachable_keys_are_503(client, jwks, signing_key, error):
+def test_unreachable_keys_are_503(client, jwks, signing_key, error, caplog):
     jwks.error = error
     response = client.get("/api/me", headers=bearer(make_token(signing_key)))
     assert response.status_code == 503
     assert response.json() == {"detail": "Sign-in is unavailable right now"}
+    # The URL is logged, so a wrong SUPABASE_URL is obvious from the logs.
+    assert f"from {jwks.uri}" in caplog.text
 
 
 def test_without_supabase_url_account_routes_are_503(client, monkeypatch, signing_key):
