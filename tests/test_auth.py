@@ -102,6 +102,7 @@ def test_missing_or_malformed_token_is_401(client, headers):
     {"iss": "https://other-ref.supabase.co/auth/v1"},
     {"sub": None},
     {"sub": "not-a-uuid"},
+    {"sub": 123},  # PyJWT rejects a sub that isn't a string
 ])
 def test_token_with_bad_claims_is_401(client, signing_key, claims):
     response = client.get("/api/me", headers=bearer(make_token(signing_key, **claims)))
@@ -157,6 +158,10 @@ def test_jwks_client_is_built_from_supabase_url(monkeypatch):
     assert module.ISSUER == ISSUER
     assert module.jwks_client.uri == f"{ISSUER}/.well-known/jwks.json"
     assert module.jwks_client.timeout == auth.JWKS_TIMEOUT
+    # The key set cache expires; the per-key cache wouldn't, so revoked keys would
+    # keep working on a warm instance.
+    assert module.jwks_client.jwk_set_cache.lifespan == 300
+    assert not hasattr(module.jwks_client.get_signing_key, "cache_info")
 
 
 def test_jwks_client_is_none_without_supabase_url():

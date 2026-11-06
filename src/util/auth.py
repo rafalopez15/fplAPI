@@ -1,8 +1,9 @@
 """Who's calling: checks the Supabase sign-in token on account routes.
 
 Supabase signs access tokens with an asymmetric key and publishes the public half
-at a JWKS URL, so the API checks tokens locally. Keys are cached in memory; Supabase
-is only called on a cold start, after the cache expires, or for an unknown key id.
+at a JWKS URL, so the API checks tokens locally. The key set is cached in memory for
+5 minutes; Supabase is only called on a cold start, after that, or for an unknown
+key id.
 FPL routes never use this, so they work the same with or without a token.
 """
 import logging
@@ -22,8 +23,10 @@ JWKS_TIMEOUT = 5  # seconds; someone in the app is waiting
 ACCOUNT_CACHE = "private, no-store"
 
 ISSUER = f"{SUPABASE_URL}/auth/v1" if SUPABASE_URL else None
+# Only the key set cache (refetched every 5 minutes), not cache_keys: that caches
+# each key with no expiry, so a key revoked in Supabase would keep working.
 jwks_client = (
-    jwt.PyJWKClient(f"{ISSUER}/.well-known/jwks.json", cache_keys=True, timeout=JWKS_TIMEOUT)
+    jwt.PyJWKClient(f"{ISSUER}/.well-known/jwks.json", timeout=JWKS_TIMEOUT)
     if ISSUER else None
 )
 
