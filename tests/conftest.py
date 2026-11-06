@@ -14,7 +14,6 @@ from pathlib import Path  # pylint: disable=wrong-import-position
 from types import SimpleNamespace  # pylint: disable=wrong-import-position
 
 import jwt  # pylint: disable=wrong-import-position
-
 import pytest  # pylint: disable=wrong-import-position
 from alembic import command  # pylint: disable=wrong-import-position
 from alembic.config import Config  # pylint: disable=wrong-import-position
@@ -341,7 +340,7 @@ def signing_key():
 
 @pytest.fixture
 def jwks(monkeypatch, signing_key):
-    """Configure sign-in as if SUPABASE_URL were set, with a local key pair."""
+    """Turn sign-in on, as if SUPABASE_URL were set, with a local key pair."""
     client = FakeJwksClient(signing_key.public_key())
     monkeypatch.setattr(auth, "ISSUER", ISSUER)
     monkeypatch.setattr(auth, "jwks_client", client)
@@ -349,8 +348,8 @@ def jwks(monkeypatch, signing_key):
 
 
 def make_token(key, algorithm="ES256", headers=None, **claims):
-    """A token shaped like a Supabase access token, for USER_ID unless sub is given.
-    Claims set to None are left out."""
+    """A Supabase-shaped access token for USER_ID (or sub). Claims set to None are
+    left out."""
     payload = {
         "sub": USER_ID, "aud": "authenticated",
         "iss": ISSUER, "exp": int(time.time()) + 3600, "role": "authenticated",
@@ -364,11 +363,10 @@ def bearer(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-
 @pytest.fixture
 def signed_in(jwks, signing_key):  # pylint: disable=unused-argument
-    """Authorization headers for a signed-in user: signed_in() is USER_ID,
-    signed_in(sub) someone else."""
+    """Headers for a signed-in user: signed_in() for USER_ID, signed_in(sub) for
+    anyone else."""
     return lambda sub=USER_ID: bearer(make_token(signing_key, sub=str(sub)))
 
 

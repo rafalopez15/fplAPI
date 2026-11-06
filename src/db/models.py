@@ -283,10 +283,10 @@ class Profile(Base):
 
 
 class UserTeam(Base):
-    """An FPL team on someone's account: one they run ("mine") or follow.
+    """An FPL team on an account: one the user runs ("mine") or follows.
 
-    The key is (user_id, manager_id), so a team is one or the other, not both. The
-    team's manager needn't have an account: manager_id is FPL's id, not a profile.
+    The key (user_id, manager_id) makes a team one or the other. manager_id is FPL's
+    id, so the team's manager needn't have an account.
     """
     __tablename__ = "user_teams"
     __table_args__ = (CheckConstraint("relation IN ('mine', 'following')", name="relation"),)

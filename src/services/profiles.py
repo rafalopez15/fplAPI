@@ -8,8 +8,8 @@ from src.models.profile import ProfileResponse
 def ensure_profile(session: Session, user_id: UUID) -> None:
     """Create the user's profile if it's missing. Safe to call concurrently.
 
-    Account tables reference profiles, so anything that writes one calls this
-    first: the app may save a team before it has ever called /api/me.
+    Call it before writing any account table: they reference profiles, and the app
+    may save a team before it ever calls /api/me.
     """
     session.execute(insert(Profile).values(id=user_id).on_conflict_do_nothing())
 

@@ -9,10 +9,9 @@ from src.util.auth import CurrentUser
 from src.util.database import get_session
 from src.util.fpl_client import FplNotFoundError
 
-# The signed-in user's own data. main.py sends Cache-Control: private, no-store on
-# every response under /api/me, errors included, so the CDN never shares one.
-# Each route needs an Authorization: Bearer header with a Supabase access token:
-# 401 without a valid one, 503 if sign-in isn't configured or is unavailable.
+# The signed-in user's own data. Every route needs a Supabase access token
+# (Authorization: Bearer): 401 without a valid one, 503 if sign-in is unavailable.
+# main.py marks every response under /api/me private, no-store.
 me_router = APIRouter()
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -26,7 +25,7 @@ def get_me(user_id: CurrentUser, session: SessionDep) -> ProfileResponse:
 
 @me_router.get("/me/teams")
 def get_my_teams(user_id: CurrentUser, session: SessionDep) -> List[UserTeamResponse]:
-    """List the FPL teams on the user's account, newest first: theirs and followed."""
+    """List the account's FPL teams, newest first."""
     return user_teams.list_teams(session, user_id)
 
 
@@ -34,10 +33,9 @@ def get_my_teams(user_id: CurrentUser, session: SessionDep) -> List[UserTeamResp
 def put_my_team(
     manager_id: ManagerId, body: TeamRequest, user_id: CurrentUser, session: SessionDep
 ) -> UserTeamResponse:
-    """Add an FPL team to the account as "mine" or "following", or switch it.
+    """Add a team as "mine" or "following", or switch it.
 
-    Adding checks the team exists on FPL: 404 if it doesn't, 503 if FPL can't be
-    reached. 409 once the account has 10 teams.
+    Adding checks FPL: 404 for an unknown team, 503 if FPL is down. 409 at 10 teams.
     """
     try:
         return user_teams.save_team(session, user_id, manager_id, body.relation)
@@ -49,5 +47,5 @@ def put_my_team(
 
 @me_router.delete("/me/teams/{manager_id}", status_code=204)
 def delete_my_team(manager_id: ManagerId, user_id: CurrentUser, session: SessionDep) -> None:
-    """Take an FPL team off the account. 204 even if it wasn't there."""
+    """Remove a team from the account. 204 even if it wasn't there."""
     user_teams.remove_team(session, user_id, manager_id)

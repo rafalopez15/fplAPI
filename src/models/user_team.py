@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
-# "mine": a team the user runs (people often run several). "following": anyone else's.
+# "mine": a team the user runs (they may run several). "following": anyone else's.
 Relation = Literal["mine", "following"]
 
 
