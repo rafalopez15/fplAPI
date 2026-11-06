@@ -7,13 +7,17 @@ from fastapi import Path
 POSTGRES_INT_MAX = 2_147_483_647
 
 
-def fpl_id(description: str):
-    """An id path parameter: a positive integer Postgres can store. FPL ids are far
-    below the cap (managers are around 10 million)."""
-    return Annotated[int, Path(gt=0, le=POSTGRES_INT_MAX, description=description)]
+def _id_path(description: str):
+    """A positive id Postgres can store. FPL ids are far below the cap (managers are
+    around 10 million)."""
+    return Path(gt=0, le=POSTGRES_INT_MAX, description=description)
 
 
-ElementId = fpl_id("The FPL player (element) id")
-ElementTypeId = fpl_id("The position: 1 goalkeeper, 2 defender, 3 midfielder, 4 forward")
-EventId = fpl_id("The gameweek")
-ManagerId = fpl_id("The FPL manager (entry) id")
+# Written out as Annotated[int, ...] so type checkers see int. An alias built by a
+# function call (fpl_id(...)) types the parameters as Any.
+ElementId = Annotated[int, _id_path("The FPL player (element) id")]
+ElementTypeId = Annotated[
+    int, _id_path("The position: 1 goalkeeper, 2 defender, 3 midfielder, 4 forward")
+]
+EventId = Annotated[int, _id_path("The gameweek")]
+ManagerId = Annotated[int, _id_path("The FPL manager (entry) id")]
