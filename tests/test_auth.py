@@ -3,7 +3,6 @@
 """Sign-in tokens (util/auth.py) and the account routes under /api/me."""
 import importlib.util
 import time
-from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import jwt
@@ -15,56 +14,7 @@ from main import app
 from src.db.models import Profile
 from src.services import profiles
 from src.util import auth, config, database
-
-ISSUER = "https://test-ref.supabase.co/auth/v1"
-KEY_ID = "test-key"
-
-
-class FakeJwksClient:
-    """Stands in for PyJWKClient: serves one public key, or raises a set error."""
-
-    uri = f"{ISSUER}/.well-known/jwks.json"
-
-    def __init__(self, public_key, error=None):
-        self.public_key = public_key
-        self.error = error
-
-    def get_signing_key_from_jwt(self, token):
-        if self.error:
-            raise self.error
-        if jwt.get_unverified_header(token).get("kid") != KEY_ID:
-            raise jwt.PyJWKClientError("Unable to find a signing key that matches")
-        return SimpleNamespace(key=self.public_key)
-
-
-@pytest.fixture
-def signing_key():
-    return ec.generate_private_key(ec.SECP256R1())
-
-
-@pytest.fixture
-def jwks(monkeypatch, signing_key):
-    """Configure sign-in as if SUPABASE_URL were set, with a local key pair."""
-    client = FakeJwksClient(signing_key.public_key())
-    monkeypatch.setattr(auth, "ISSUER", ISSUER)
-    monkeypatch.setattr(auth, "jwks_client", client)
-    return client
-
-
-def make_token(key, algorithm="ES256", headers=None, **claims):
-    """A token shaped like a Supabase access token. Claims set to None are left out."""
-    payload = {
-        "sub": "6f1d3c2a-8b4e-4f5a-9c7d-1e2f3a4b5c6d", "aud": "authenticated",
-        "iss": ISSUER, "exp": int(time.time()) + 3600, "role": "authenticated",
-        "email": "fpl.social.test@gmail.com", **claims,
-    }
-    payload = {name: value for name, value in payload.items() if value is not None}
-    return jwt.encode(payload, key, algorithm=algorithm, headers={"kid": KEY_ID, **(headers or {})})
-
-
-def bearer(token):
-    return {"Authorization": f"Bearer {token}"}
-
+from tests.conftest import ISSUER, USER_ID, bearer, make_token
 
 # --- tokens --------------------------------------------------------------------
 
@@ -74,7 +24,7 @@ def test_valid_token_returns_the_profile(client, signing_key, seeded_session):
     assert response.status_code == 200
     assert response.headers["cache-control"] == "private, no-store"
     body = response.json()
-    assert body["id"] == "6f1d3c2a-8b4e-4f5a-9c7d-1e2f3a4b5c6d"
+    assert body["id"] == USER_ID
     assert seeded_session.get(Profile, UUID(body["id"])) is not None
 
 
