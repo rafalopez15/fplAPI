@@ -80,6 +80,22 @@ def test_adding_a_team_checks_fpl_and_saves_it(api, fetch_manager):
     assert teams(api) == [(1, "mine")]
 
 
+def test_no_transaction_is_open_while_fpl_is_called(api, seeded_session, monkeypatch):
+    def fetch(manager_id):
+        assert not seeded_session.in_transaction()
+        return make_fpl_manager(id=manager_id)
+
+    monkeypatch.setattr(fpl_client, "fetch_manager", Mock(side_effect=fetch))
+    assert api.put("/api/me/teams/1", json={"relation": "mine"}).status_code == 200
+
+
+@pytest.mark.usefixtures("fetch_manager")
+@pytest.mark.parametrize("method", ["PUT", "DELETE"])
+def test_team_id_too_big_for_postgres_is_422(api, method):
+    response = api.request(method, "/api/me/teams/2147483648", json={"relation": "mine"})
+    assert response.status_code == 422
+
+
 def test_adding_a_team_before_get_me_creates_the_profile(api, fetch_manager, seeded_session):
     # The app may save a team before it ever calls /api/me.
     assert api.put("/api/me/teams/1", json={"relation": "following"}).status_code == 200
