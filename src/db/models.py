@@ -1,12 +1,14 @@
-"""SQLAlchemy tables for the FPL data, synced from FPL by the jobs and read by the API.
+"""SQLAlchemy tables: the FPL data, synced from FPL by the jobs and read by the API,
+and the accounts (Profile), written by the API.
 
-Column names match FPL's field names, so rows map 1:1 onto the Pydantic response
-models. Ids are FPL's own, never generated here. Tables are only upserted, never
-deleted from, so players FPL drops stay for their history rows.
+FPL tables' column names match FPL's field names, so rows map 1:1 onto the Pydantic
+response models. Ids are FPL's own, never generated here. FPL tables are only
+upserted, never deleted from, so players FPL drops stay for their history rows.
 """
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Optional
+from uuid import UUID
 from sqlalchemy import DateTime, ForeignKey, Identity, MetaData, Numeric, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -265,3 +267,16 @@ class SyncRun(Base):
     finished_at: Mapped[Optional[datetime]]
     status: Mapped[str]  # "running", "succeeded" or "failed"
     error: Mapped[Optional[str]]
+
+
+class Profile(Base):
+    """A signed-in user's account, created on their first call to /api/me.
+
+    id is the Supabase Auth user id (the token's sub). There's no foreign key to
+    Supabase's auth.users, because the test database has no auth schema, so
+    deleting an account goes through the API.
+    """
+    __tablename__ = "profiles"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
