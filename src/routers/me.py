@@ -3,7 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from src.models.profile import ProfileResponse
 from src.models.user_team import TeamRequest, UserTeamResponse
-from src.routers.managers import ManagerId, manager_not_found
+from src.routers.managers import manager_not_found
+from src.routers.params import ManagerId
 from src.services import profiles, user_teams
 from src.util.auth import CurrentUser
 from src.util.database import get_session

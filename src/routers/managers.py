@@ -1,5 +1,5 @@
 from typing import Annotated, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 from src.models.manager import (
     HistoryResponse,
@@ -7,6 +7,7 @@ from src.models.manager import (
     PicksResponse,
     TransferResponse,
 )
+from src.routers.params import ManagerId
 from src.services import managers
 from src.util.database import get_session
 from src.util.fpl_client import FplNotFoundError
@@ -21,12 +22,6 @@ TRANSFERS_CACHE = "s-maxage=60, stale-while-revalidate=60"
 HISTORY_CACHE = "s-maxage=300, stale-while-revalidate=600"
 PICKS_CACHE = "s-maxage=60, stale-while-revalidate=300"
 NO_STORE = {"Cache-Control": "no-store"}
-
-# Capped at Postgres's integer maximum, so a bigger id is a 422, not a 500 from the
-# query. FPL ids are around 10 million.
-ManagerId = Annotated[
-    int, Path(gt=0, le=2_147_483_647, description="The FPL manager (entry) id")
-]
 
 
 def manager_not_found() -> HTTPException:

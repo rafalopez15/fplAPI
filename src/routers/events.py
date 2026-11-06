@@ -1,6 +1,7 @@
-from typing import Annotated, List
-from fastapi import APIRouter, HTTPException, Path, Response
+from typing import List
+from fastapi import APIRouter, HTTPException, Response
 from src.models.event import EventResponse, LiveElementResponse
+from src.routers.params import EventId
 from src.services import events
 from src.util.database import DataSession
 from src.util.fpl_client import FplNotFoundError
@@ -19,7 +20,7 @@ def get_events(session: DataSession) -> List[EventResponse]:
 
 
 @events_router.get("/events/{event_id}")
-def get_event_by_id(session: DataSession, event_id: int) -> EventResponse:
+def get_event_by_id(session: DataSession, event_id: EventId) -> EventResponse:
     """Get one gameweek by its number, e.g. 1 for Gameweek 1. Returns 404 if it doesn't exist."""
     result = events.get_event_by_id(session, event_id)
     if not result:
@@ -39,9 +40,7 @@ def get_current_event(session: DataSession) -> EventResponse:
 
 
 @events_router.get("/events/{event_id}/live")
-def get_live(
-    event_id: Annotated[int, Path(gt=0, description="The gameweek")], response: Response
-) -> List[LiveElementResponse]:
+def get_live(event_id: EventId, response: Response) -> List[LiveElementResponse]:
     """List every player's points and minutes in a gameweek, updated during matches.
 
     Calls FPL live, so it works even when the hourly sync is behind. Returns [] for
