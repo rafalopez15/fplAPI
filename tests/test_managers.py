@@ -257,7 +257,7 @@ def test_fpl_unavailable_returns_503(api, fpl, path, fetch):
     assert response.headers["cache-control"] == "no-store"
 
 
-@pytest.mark.parametrize("bad_id", ["0", "-5", "abc", "1.5"])
+@pytest.mark.parametrize("bad_id", ["0", "-5", "abc", "1.5", "2147483648"])
 @pytest.mark.parametrize("suffix", ["", "/transfers", "/history", "/picks"])
 def test_invalid_id_returns_422_without_calling_fpl(api, fpl, bad_id, suffix):
     response = api.get(f"/api/managers/{bad_id}{suffix}")

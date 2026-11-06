@@ -83,7 +83,7 @@ def test_get_live_fpl_unavailable_returns_503(api, fetch):
     assert response.headers["cache-control"] == "no-store"
 
 
-@pytest.mark.parametrize("bad_id", ["0", "-1", "abc"])
+@pytest.mark.parametrize("bad_id", ["0", "-1", "abc", "2147483648"])
 def test_get_live_invalid_id_returns_422_without_calling_fpl(api, fetch, bad_id):
     assert api.get(f"/api/events/{bad_id}/live").status_code == 422
     fetch.assert_not_called()

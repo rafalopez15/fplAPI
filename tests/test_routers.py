@@ -92,6 +92,23 @@ def test_get_element_by_id_invalid(client):
     assert client.get("/api/elements/abc").status_code == 422
 
 
+# --- id path parameters ----------------------------------------------------
+
+ID_ROUTES = ["/api/elements/{}", "/api/elements/position/{}", "/api/events/{}"]
+
+
+@pytest.mark.parametrize("path", ID_ROUTES)
+@pytest.mark.parametrize("bad_id", ["0", "-1", "2147483648", "99999999999", "-99999999999"])
+def test_ids_postgres_cant_store_are_422(client, path, bad_id):
+    # Postgres integers stop at 2,147,483,647; past that the query fails with a 500.
+    assert client.get(path.format(bad_id)).status_code == 422
+
+
+@pytest.mark.parametrize("path", ID_ROUTES)
+def test_largest_id_postgres_can_store_reaches_the_database(client, path):
+    assert client.get(path.format(2_147_483_647)).status_code == 404
+
+
 def test_get_elements_by_type(client):
     response = client.get("/api/elements/position/3")
     assert response.status_code == 200

@@ -46,6 +46,8 @@ migrations/              Alembic environment and versions/ (one file per migrati
 src/
   routers/               HTTP layer: one APIRouter per resource, mounted under /api
     __init__.py          Combines the resource routers into a single `routers`
+    params.py            Id path parameters (ElementId, EventId, ManagerId...): positive and
+                         capped at Postgres's integer maximum, so a bad id is a 422, not a 500
     elements.py          /elements, /elements/{id}, /elements/position/{element_type}
     events.py            /events, /events/{id}, /events/current-event/, /events/{id}/live (live from FPL)
     teams.py             /teams, /teams/{team_name}
@@ -81,7 +83,7 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
 
 **Account routes** (`/api/me...`, FPL-11) are the signed-in user's own data: router → `CurrentUser` (the token) → service → Postgres. They take a plain `get_session`, since accounts don't depend on the FPL sync, and every query filters by the user id from the token. See Accounts and sign-in.
 
-- **Routers** handle HTTP concerns only: path parameters, status codes, `HTTPException`. Endpoints are plain `def`, so FastAPI runs them in its thread pool and the blocking database calls don't stall the event loop. Each takes a `session: DataSession` and passes it to a service.
+- **Routers** handle HTTP concerns only: path parameters, status codes, `HTTPException`. Id path parameters use the types in `params.py`, never a bare `int`: an id Postgres can't store would fail the query with a 500. A new one is `Annotated[int, _id_path("...")]` there, written out so type checkers still see `int`. Endpoints are plain `def`, so FastAPI runs them in its thread pool and the blocking database calls don't stall the event loop. Each takes a `session: DataSession` and passes it to a service.
 - **`DataSession`** (`src/util/database.py`) is the request's session from `get_session`, after `get_data_session` checks that a bootstrap sync has succeeded. Tests override `get_session`.
 - **Services** are plain functions that take the session first. They query with the ORM models and return Pydantic models (built with `model_validate(row)`), or `None`/`[]` when nothing matches. Lists are in FPL id order.
 - **Response models** use `from_attributes=True`. `EventResponse` rebuilds FPL's `top_element_info` object from the `top_element` and `top_element_points` columns.
@@ -155,7 +157,7 @@ Use these status codes consistently:
 | A live call to FPL fails (`FplUnavailableError`) | **503** `"FPL is unavailable right now"`, with `Cache-Control: no-store` |
 | Single-item lookup or filter finds nothing | **404** with a resource-specific detail, e.g. `"Team not found"`. Unknown FPL managers: `"Manager not found"`, and gameweeks FPL doesn't have on `/live`: `"Event not found"`, both with `no-store` |
 | Collection endpoint with no items | **200** with `[]` |
-| Invalid path parameter type, or an id over Postgres's `integer` maximum (`ManagerId` caps it; the other id routes don't yet, FPL-59) | **422** (FastAPI default) |
+| Invalid path parameter: not an integer, 0 or less, or over Postgres's `integer` maximum (see `src/routers/params.py`) | **422** (FastAPI default) |
 | Account route without a valid sign-in token (missing, malformed, expired, wrong `aud`/`iss`, forged, or HS256) | **401** `"Not signed in"`, with `WWW-Authenticate: Bearer` |
 | Account route when `SUPABASE_URL` isn't set, or Supabase's keys can't be fetched | **503** `"Sign-in is unavailable right now"` |
 | Adding a team to an account that already has 10 | **409** `"Team limit reached"` |
