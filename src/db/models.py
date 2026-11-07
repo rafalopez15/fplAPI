@@ -1,5 +1,5 @@
 """SQLAlchemy tables: the FPL data, synced from FPL by the jobs and read by the API,
-and the accounts (Profile, UserTeam), written by the API.
+and the accounts (Profile, UserTeam, Note), written by the API.
 
 FPL tables' column names match FPL's field names, so rows map 1:1 onto the Pydantic
 response models. Ids are FPL's own, never generated here. FPL tables are only
@@ -9,7 +9,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Identity, MetaData, Numeric, func
+from sqlalchemy import (
+    CheckConstraint, DateTime, ForeignKey, Identity, Index, MetaData, Numeric, func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -297,3 +299,27 @@ class UserTeam(Base):
     manager_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
     relation: Mapped[str]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Note(Base):
+    """A signed-in user's note, synced across their devices (FPL-49).
+
+    id is made by the device. created_at and updated_at are device times, and the
+    newer updated_at wins a conflict. A deleted note stays as a tombstone (deleted_at
+    set, content cleared) so other devices learn about the delete. synced_at is the
+    server's time of the last write, which GET /api/me/notes?since= pages through.
+    """
+    __tablename__ = "notes"
+    __table_args__ = (Index("ix_notes_user_id_synced_at", "user_id", "synced_at", "id"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"))
+    text: Mapped[str]  # may be "": a skipped transfer note has no text yet
+    gameweek: Mapped[Optional[int]]  # null if gameweeks couldn't load on the device
+    players: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)  # [{id, web_name}]
+    transfer: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)  # transfer notes only
+    manager_id: Mapped[Optional[int]]  # the FPL team, when the device knows it
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+    deleted_at: Mapped[Optional[datetime]]
+    synced_at: Mapped[datetime]

@@ -56,12 +56,14 @@ src/
                          /managers/{id}/picks?event= (live from FPL)
     me.py                /me: the signed-in user's account (Supabase sign-in token);
                          /me/teams, /me/teams/{manager_id}: their teams and followed teams
+    notes.py             /me/notes, /me/notes/{note_id}: notes synced across devices
   services/              Business logic: queries that return Pydantic models
     transfer_points.py   Net points per transfer, and Wildcard/Free Hit churn (is_churn)
     profiles.py          Accounts: ensure_profile() creates the row if it's missing
     user_teams.py        An account's FPL teams: list, add or switch (checks FPL), remove
+    notes.py             Synced notes: newest updated_at wins, tombstones, the ?since= cursor
   models/                Pydantic response models (ElementResponse, EventResponse, TeamResponse,
-                         ProfileResponse, UserTeamResponse)
+                         ProfileResponse, UserTeamResponse, NoteRequest, NoteResponse)
   db/
     models.py            SQLAlchemy ORM tables; Alembic autogenerates migrations from them
   jobs/
@@ -118,7 +120,7 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
 - **Connection pool:** `DATABASE_POOL_SIZE` (default 3) and `DATABASE_MAX_OVERFLOW` (default 2). Keep them small: every Vercel instance has its own pool, and Supabase's free plan allows only a few server connections in total. Anything that connects through the session pooler holds one of its 15 slots for as long as the connection is open.
 - Never print or log `DATABASE_URL`: it contains the password.
 - `migrations/env.py` reads the URL from `config.py`, never from `alembic.ini`, and escapes `%` for configparser. If a URL is already set (as the tests do), it keeps that one.
-- **Schema** (design in the FPL-7 spike's "Spike outcome" comment in Linear): `teams`, `element_types`, `elements`, `events`, `fixtures` (every match of the season, from `/fixtures/`), `player_fixture_history` (one row per player per fixture, from `/element-summary/{id}/`; not filled yet, FPL-23), `element_event_points` (one row per player per finished gameweek: `total_points` and `minutes`, double gameweeks summed), `sync_runs`, and the account tables written by the API, `profiles` and `user_teams` (see Accounts and sign-in).
+- **Schema** (design in the FPL-7 spike's "Spike outcome" comment in Linear): `teams`, `element_types`, `elements`, `events`, `fixtures` (every match of the season, from `/fixtures/`), `player_fixture_history` (one row per player per fixture, from `/element-summary/{id}/`; not filled yet, FPL-23), `element_event_points` (one row per player per finished gameweek: `total_points` and `minutes`, double gameweeks summed), `sync_runs`, and the account tables written by the API, `profiles`, `user_teams` and `notes` (see Accounts and sign-in).
   - `fixtures.started` is true from kickoff. FPL only sets `finished` once the gameweek's bonus points are confirmed, a day or more after the match, so "still to be played" means `started = false`.
   - Column names are FPL's field names, so rows map 1:1 onto the Pydantic models. `elements` columns match `ElementResponse`, including which are `NOT NULL`.
   - In the FPL tables, ids are FPL's, never generated (`autoincrement=False`). Decimals are `numeric`, timestamps are `timestamptz`.
@@ -146,6 +148,11 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
 - **`SUPABASE_URL`** is optional. Unset, account routes return 503 and nothing else changes. It's per environment: previews accept only staging's tokens, so iOS Debug builds pointed at a preview sign in against staging.
 - **`profiles`** has one row per account (`id` = the Supabase user id, `created_at`), created by `ensure_profile()` on the first `GET /api/me`, or the first write: anything that writes an account table calls it first, since the app may save a team before it ever calls `/api/me`. It has no foreign key to `auth.users`, because the test database has no `auth` schema; deleting an account goes through the API (FPL-51). Account tables reference `profiles` with `ON DELETE CASCADE`.
 - **`user_teams`** (FPL-50) are the FPL teams on an account, keyed `(user_id, manager_id)`: `relation` is `mine` (teams they run; people often run several) or `following`, never both. The followed team's manager needn't have an account. `PUT /api/me/teams/{manager_id}` adds a team (checking it exists on FPL, one call) or switches its relation (no FPL call), as an upsert so a double tap can't collide. It ends its read transaction before calling FPL, so a slow FPL doesn't hold a pooler connection; do the same in any request that calls FPL after querying. At most 10 teams per account (`TEAM_LIMIT`), which bounds the FPL calls that syncing followed teams' activity will cost. No team names in the response: the app gets them from `/api/managers/{id}`, cached at the CDN.
+- **`notes`** (FPL-49) are synced across a user's devices. The fields match the iOS `Note` model: `text` (may be `""`), `gameweek` (nullable), `players` (JSONB `[{id, web_name}]`, names saved so a note shows without the player list), `transfer` (JSONB, transfer notes only), `manager_id` (nullable), and the device's `created_at` and `updated_at`.
+  - **The device makes the id and every write sends the whole note** (`PUT /api/me/notes/{note_id}`). The newer `updated_at` wins; an older or equal one keeps the stored note, and the response is always the stored note, so the device can tell it lost. Retries are harmless.
+  - **Deleting is a write:** `deleted_at` set on a `PUT` (or `DELETE ...?updated_at=`, the same thing). The row stays as a tombstone with its content cleared, so other devices learn about it, and an undo is a later `PUT` with `deleted_at` null. Device times decide everything, so a delete and its undo can't be reordered by clock differences between the phone and the server.
+  - **`GET /api/me/notes?since=<cursor>`** pages through changes by `synced_at` (server `clock_timestamp()` of each write), ordered by `(synced_at, id)` so notes written in the same instant aren't skipped; 500 per page, `more` when another is waiting. The last page's cursor is held `LOOKBACK` (5s) behind the clock, so a write still committing when the page was read comes through next time; the device may see a note twice and applies it by id. The cursor is opaque (base64 of the time and id).
+  - Tombstones are never purged yet.
 - **Never cached:** a middleware in `main.py` sets `Cache-Control: private, no-store` on every response under `/api/me`, errors included (except an unhandled 500, which Starlette sends from outside the middleware with no `Cache-Control`; the CDN doesn't cache it either), so Vercel's CDN can't serve one user's data to another. `test_every_account_response_is_private` walks every `/api/me` route and method; a new account route is covered automatically.
 
 ### Error responses
@@ -161,6 +168,8 @@ Use these status codes consistently:
 | Account route without a valid sign-in token (missing, malformed, expired, wrong `aud`/`iss`, forged, or HS256) | **401** `"Not signed in"`, with `WWW-Authenticate: Bearer` |
 | Account route when `SUPABASE_URL` isn't set, or Supabase's keys can't be fetched | **503** `"Sign-in is unavailable right now"` |
 | Adding a team to an account that already has 10 | **409** `"Team limit reached"` |
+| A note that doesn't exist or is another user's (never 403, so ids reveal nothing) | **404** `"Note not found"` |
+| A `?since=` cursor the API didn't issue | **422** `"Invalid cursor"` |
 
 ### Logging
 - Use `logging.getLogger(__name__)` with `%s` placeholders, e.g. `logger.info("msg: %s", value)`. Never pass extra arguments without a placeholder: pytest's log capture raises on that.
