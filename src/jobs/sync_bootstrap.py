@@ -1,15 +1,17 @@
-"""Sync FPL's bootstrap-static and fixtures into Postgres. GitHub Actions runs it hourly.
+"""Sync FPL's bootstrap-static and fixtures into Postgres. GitHub Actions runs it
+hourly.
 
     python -m src.jobs.sync_bootstrap
 
 Upserts teams, element_types, elements, events and fixtures in one transaction, so
-a failed run leaves the previous data in place. Unchanged rows aren't rewritten, and rows
-are never deleted: players FPL drops stay for their history. Every run is
+a failed run leaves the previous data in place. Unchanged rows aren't rewritten, and
+rows are never deleted: players FPL drops stay for their history. Every run is
 recorded in sync_runs.
 
 Then stores each newly finished gameweek's points per player (element_event_points),
 one gameweek per transaction, so a failure there doesn't undo the bootstrap data.
 """
+
 import logging
 import sys
 from typing import Callable, Optional
@@ -151,7 +153,9 @@ def sync_bootstrap(
             for collection, model in COLLECTIONS:
                 rows = [to_row(model, item) for item in data[collection]]
                 written = upsert(session, model, rows)
-                logger.info("Upserted %s %s (%s new or changed)", len(rows), collection, written)
+                logger.info(
+                    "Upserted %s %s (%s new or changed)", len(rows), collection, written
+                )
         status, error = "succeeded", None
     except SYNC_ERRORS as exc:
         status, error = "failed", describe(exc)
@@ -165,13 +169,18 @@ def gameweeks_to_store(engine: Engine) -> list[int]:
     """Finished gameweeks (bonus confirmed) whose points aren't stored yet, in order."""
     stored = select(ElementEventPoints.event).distinct()
     with Session(engine) as session:
-        return list(session.scalars(
-            select(Event.id).where(Event.data_checked, Event.id.not_in(stored)).order_by(Event.id)
-        ))
+        return list(
+            session.scalars(
+                select(Event.id)
+                .where(Event.data_checked, Event.id.not_in(stored))
+                .order_by(Event.id)
+            )
+        )
 
 
 def sync_event_points(
-    engine: Optional[Engine] = None, fetch_live: Callable[[int], dict] = fetch_event_live
+    engine: Optional[Engine] = None,
+    fetch_live: Callable[[int], dict] = fetch_event_live,
 ) -> bool:
     """Store every player's points for each newly finished gameweek.
 
@@ -195,8 +204,12 @@ def sync_event_points(
             ]
             with Session(engine) as session, session.begin():
                 written = upsert(session, ElementEventPoints, rows)
-            logger.info("Stored gameweek %s points: %s players (%s new or changed)",
-                        event, len(rows), written)
+            logger.info(
+                "Stored gameweek %s points: %s players (%s new or changed)",
+                event,
+                len(rows),
+                written,
+            )
             finish_run(engine, run_id, "succeeded", None)
         except SYNC_ERRORS as exc:
             error = describe(exc)

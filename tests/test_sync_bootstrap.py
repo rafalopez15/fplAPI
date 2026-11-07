@@ -8,7 +8,15 @@ import requests
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
-from src.db.models import Base, Element, ElementEventPoints, Event, Fixture, SyncRun, Team
+from src.db.models import (
+    Base,
+    Element,
+    ElementEventPoints,
+    Event,
+    Fixture,
+    SyncRun,
+    Team,
+)
 from src.jobs import sync_bootstrap as job
 from src.util.fpl_client import FplUnavailableError
 from tests.conftest import (
@@ -34,7 +42,10 @@ def engine(db_engine):
 def bootstrap():
     """A small bootstrap-static response with FPL's raw values (decimals as strings)."""
     return {
-        "teams": [make_team(), make_team(id=2, code=43, name="Man City", short_name="MCI")],
+        "teams": [
+            make_team(),
+            make_team(id=2, code=43, name="Man City", short_name="MCI"),
+        ],
         "element_types": ELEMENT_TYPES,
         "elements": [
             make_element(id=1),
@@ -43,12 +54,16 @@ def bootstrap():
         "events": [make_event(), future_event()],
         "total_players": 11219378,
         # Not part of bootstrap-static: run() serves these from the fixtures fetch.
-        "fixtures": [make_fixture(), make_fixture(id=85, event=None, kickoff_time=None)],
+        "fixtures": [
+            make_fixture(),
+            make_fixture(id=85, event=None, kickoff_time=None),
+        ],
     }
 
 
 def run(engine, data):
-    """Sync data, serving "fixtures" from the fixtures fetch and the rest from bootstrap."""
+    """Sync data, serving "fixtures" from the fixtures fetch and the rest from
+    bootstrap."""
     bootstrap = {key: value for key, value in data.items() if key != "fixtures"}
     return job.sync_bootstrap(
         engine,
@@ -69,6 +84,7 @@ def sync_runs(engine):
 
 # --- successful syncs ------------------------------------------------------
 
+
 def test_first_sync_stores_everything(engine, bootstrap):
     assert run(engine, bootstrap) is True
 
@@ -87,7 +103,11 @@ def test_successful_run_is_recorded(engine, bootstrap):
     run(engine, bootstrap)
 
     [sync_run] = sync_runs(engine)
-    assert (sync_run.kind, sync_run.status, sync_run.error) == ("bootstrap", "succeeded", None)
+    assert (sync_run.kind, sync_run.status, sync_run.error) == (
+        "bootstrap",
+        "succeeded",
+        None,
+    )
     assert sync_run.finished_at >= sync_run.started_at
 
 
@@ -132,7 +152,9 @@ def test_raw_strings_equal_to_stored_values_are_unchanged(engine, bootstrap):
     run(engine, bootstrap)
     with Session(engine) as session:
         assert job.upsert(session, Event, [job.to_row(Event, make_event())]) == 0
-        assert job.upsert(session, Element, [job.to_row(Element, make_element(id=1))]) == 0
+        assert (
+            job.upsert(session, Element, [job.to_row(Element, make_element(id=1))]) == 0
+        )
 
 
 def test_players_fpl_drops_are_kept(engine, bootstrap):
@@ -175,18 +197,26 @@ def test_finished_fixture_scores_are_updated(engine, bootstrap):
     run(engine, bootstrap)
     with Session(engine) as session:
         fixture = session.get(Fixture, 91)
-        assert (fixture.finished, fixture.team_h_score, fixture.team_a_score) == (True, 3, 3)
+        assert (fixture.finished, fixture.team_h_score, fixture.team_a_score) == (
+            True,
+            3,
+            3,
+        )
 
 
 # --- failures --------------------------------------------------------------
+
 
 def test_failed_fixtures_fetch_writes_nothing(engine, bootstrap):
     def fetch_fixtures():
         raise requests.exceptions.Timeout("fixtures timed out")
 
-    assert job.sync_bootstrap(
-        engine, fetch=lambda: bootstrap, fetch_fixtures_list=fetch_fixtures
-    ) is False
+    assert (
+        job.sync_bootstrap(
+            engine, fetch=lambda: bootstrap, fetch_fixtures_list=fetch_fixtures
+        )
+        is False
+    )
 
     assert count(engine, Team) == 0
     assert sync_runs(engine)[0].error == "fixtures timed out"
@@ -260,22 +290,35 @@ def test_error_message_is_truncated(engine):
 
 # --- gameweek points --------------------------------------------------------
 
+
 def finished_event(id_):
-    return make_event(id=id_, name=f"Gameweek {id_}", is_current=False, finished=True,
-                      data_checked=True)
+    return make_event(
+        id=id_,
+        name=f"Gameweek {id_}",
+        is_current=False,
+        finished=True,
+        data_checked=True,
+    )
 
 
 def live(*players):
     """FPL's event/{gw}/live/ response for (id, total_points, minutes) players."""
-    return {"elements": [
-        {"id": id_, "stats": {"total_points": points, "minutes": minutes, "bps": 9},
-         "explain": [], "modified": False}
-        for id_, points, minutes in players
-    ]}
+    return {
+        "elements": [
+            {
+                "id": id_,
+                "stats": {"total_points": points, "minutes": minutes, "bps": 9},
+                "explain": [],
+                "modified": False,
+            }
+            for id_, points, minutes in players
+        ]
+    }
 
 
 class FakeLive:
     """fetch_event_live stand-in that records which gameweeks were fetched."""
+
     def __init__(self, response=None, error=None):
         self.calls, self.response, self.error = [], response, error
 
@@ -288,7 +331,8 @@ class FakeLive:
 
 @pytest.fixture
 def synced(engine, bootstrap):
-    """Bootstrap data with gameweek 8 finished and confirmed, 9 in progress, 10 to come."""
+    """Bootstrap data with gameweek 8 finished and confirmed, 9 in progress, 10 to
+    come."""
     bootstrap["events"] = [finished_event(8), make_event(), future_event()]
     run(engine, bootstrap)
     return bootstrap
@@ -296,13 +340,18 @@ def synced(engine, bootstrap):
 
 def stored_points(engine):
     with Session(engine) as session:
-        rows = session.scalars(select(ElementEventPoints).order_by(
-            ElementEventPoints.event, ElementEventPoints.element))
+        rows = session.scalars(
+            select(ElementEventPoints).order_by(
+                ElementEventPoints.event, ElementEventPoints.element
+            )
+        )
         return [(r.element, r.event, r.total_points, r.minutes) for r in rows]
 
 
 def points_runs(engine):
-    return [(r.event_id, r.status) for r in sync_runs(engine) if r.kind == "event_points"]
+    return [
+        (r.event_id, r.status) for r in sync_runs(engine) if r.kind == "event_points"
+    ]
 
 
 @pytest.mark.usefixtures("synced")
@@ -361,7 +410,9 @@ def test_points_failure_is_recorded_and_keeps_bootstrap_data(engine, synced, cap
 
 @pytest.mark.usefixtures("synced")
 def test_failed_gameweek_is_retried_next_run(engine):
-    job.sync_event_points(engine, fetch_live=FakeLive(error=FplUnavailableError("down")))
+    job.sync_event_points(
+        engine, fetch_live=FakeLive(error=FplUnavailableError("down"))
+    )
     fetch = FakeLive()
     assert job.sync_event_points(engine, fetch_live=fetch) is True
     assert fetch.calls == [8]
@@ -383,6 +434,7 @@ def test_bad_live_data_fails_the_gameweek_and_writes_nothing(engine, response):
 
 
 # --- main ------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "bootstrap_ok, points_ok, exit_code",

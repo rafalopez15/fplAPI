@@ -12,7 +12,9 @@ LAST_SYNC = {
 
 def test_healthcheck(monkeypatch):
     monkeypatch.setattr(database, "is_database_reachable", lambda: True)
-    monkeypatch.setattr(database, "get_last_sync", lambda kind="bootstrap": LAST_SYNC[kind])
+    monkeypatch.setattr(
+        database, "get_last_sync", lambda kind="bootstrap": LAST_SYNC[kind]
+    )
     response = TestClient(app).get("/healthcheck")
     assert response.status_code == 200
     assert response.json() == {
@@ -32,14 +34,19 @@ def test_healthcheck_before_the_first_sync(monkeypatch):
 
 def test_healthcheck_database_unavailable(monkeypatch):
     def unexpected(kind="bootstrap"):
-        raise AssertionError(f"get_last_sync({kind}) shouldn't run when the database is down")
+        raise AssertionError(
+            f"get_last_sync({kind}) shouldn't run when the database is down"
+        )
 
     monkeypatch.setattr(database, "is_database_reachable", lambda: False)
     monkeypatch.setattr(database, "get_last_sync", unexpected)
     response = TestClient(app).get("/healthcheck")
     assert response.status_code == 200
     assert response.json() == {
-        "status": "ok", "database": "unavailable", "last_sync": None, "last_points_sync": None,
+        "status": "ok",
+        "database": "unavailable",
+        "last_sync": None,
+        "last_points_sync": None,
     }
 
 

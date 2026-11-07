@@ -1,6 +1,7 @@
 # pytest fixtures are injected as same-named arguments.
 # pylint: disable=redefined-outer-name
 """The manager endpoints and services, which call FPL live (mocked here)."""
+
 from unittest.mock import Mock
 
 import pytest
@@ -51,6 +52,7 @@ def fpl(monkeypatch):
 
 
 # --- services ---------------------------------------------------------------
+
 
 @pytest.mark.usefixtures("fpl")
 def test_get_manager_service():
@@ -110,6 +112,7 @@ def test_services_pass_the_manager_id(fpl, seeded_session):
 
 # --- GET /api/managers/{id} --------------------------------------------------
 
+
 @pytest.mark.usefixtures("fpl")
 def test_get_manager(api):
     response = api.get("/api/managers/1")
@@ -133,13 +136,17 @@ def test_real_names_never_leave_the_api(api, path):
 
 def test_manager_optional_fields_can_be_missing(api, fpl):
     fpl["fetch_manager"].return_value = {
-        "id": 7, "name": "New Team", "player_first_name": "A", "player_last_name": "B",
+        "id": 7,
+        "name": "New Team",
+        "player_first_name": "A",
+        "player_last_name": "B",
     }
     body = api.get("/api/managers/7").json()
     assert body["summary_overall_rank"] is None
 
 
 # --- GET /api/managers/{id}/transfers ----------------------------------------
+
 
 @pytest.mark.usefixtures("fpl")
 def test_get_transfers(api):
@@ -148,10 +155,16 @@ def test_get_transfers(api):
     body = response.json()
     assert [t["element_in"] for t in body] == [566, 2]  # newest first
     assert body[0] == {
-        "element_in": 566, "element_out": 114, "event": 9,
+        "element_in": 566,
+        "element_out": 114,
+        "event": 9,
         "time": "2026-10-31T10:08:30.794468Z",
-        "element_in_cost": 50, "element_out_cost": 45,
-        "is_churn": False, "points_in": None, "points_out": None, "net_points": None,
+        "element_in_cost": 50,
+        "element_out_cost": 45,
+        "is_churn": False,
+        "points_in": None,
+        "points_out": None,
+        "net_points": None,
     }
 
 
@@ -165,6 +178,7 @@ def test_get_transfers_empty(api, fpl):
 
 # --- GET /api/managers/{id}/history ------------------------------------------
 
+
 @pytest.mark.usefixtures("fpl")
 def test_get_history(api):
     response = api.get("/api/managers/1/history")
@@ -176,10 +190,13 @@ def test_get_history(api):
     assert body["chips"] == [
         {"name": "bboost", "event": 2, "time": "2026-08-28T17:25:01.123184Z"}
     ]
-    assert body["past"] == [{"season_name": "2024/25", "total_points": 2301, "rank": 150234}]
+    assert body["past"] == [
+        {"season_name": "2024/25", "total_points": 2301, "rank": 150234}
+    ]
 
 
 # --- GET /api/managers/{id}/picks --------------------------------------------
+
 
 @pytest.mark.usefixtures("fpl")
 def test_get_picks(api):
@@ -190,11 +207,17 @@ def test_get_picks(api):
     assert body["active_chip"] is None
     assert [p["position"] for p in body["picks"]] == list(range(1, 16))
     assert body["picks"][4] == {
-        "element": 105, "position": 5, "multiplier": 2, "is_captain": True,
-        "is_vice_captain": False, "element_type": 2,
+        "element": 105,
+        "position": 5,
+        "multiplier": 2,
+        "is_captain": True,
+        "is_vice_captain": False,
+        "element_type": 2,
     }
     assert [p["multiplier"] for p in body["picks"][11:]] == [0, 0, 0, 0]  # bench
-    assert body["automatic_subs"] == [{"element_in": 113, "element_out": 103, "event": 9}]
+    assert body["automatic_subs"] == [
+        {"element_in": 113, "element_out": 103, "event": 9}
+    ]
     assert body["entry_history"]["event"] == 9
     assert body["entry_history"]["points_on_bench"] == 13
     assert "percentile_rank" not in body["entry_history"]
@@ -203,7 +226,9 @@ def test_get_picks(api):
 def test_get_picks_defaults_to_the_current_event(api, fpl):
     response = api.get("/api/managers/1/picks")
     assert response.status_code == 200
-    fpl["fetch_manager_picks"].assert_called_once_with(1, 9)  # make_fpl_manager's current_event
+    fpl["fetch_manager_picks"].assert_called_once_with(
+        1, 9
+    )  # make_fpl_manager's current_event
 
 
 def test_get_picks_with_a_chip(api, fpl):
@@ -231,6 +256,7 @@ def test_get_picks_invalid_event_returns_422_without_calling_fpl(api, fpl, bad_e
 
 # --- caching -----------------------------------------------------------------
 
+
 @pytest.mark.usefixtures("fpl")
 @pytest.mark.parametrize(
     "path, cache",
@@ -248,6 +274,7 @@ def test_successful_responses_are_cacheable(api, path, cache):
 
 
 # --- errors --------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("path, fetch", FETCHES.items())
 def test_unknown_manager_returns_404(api, fpl, path, fetch):

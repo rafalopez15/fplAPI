@@ -22,6 +22,7 @@ def session(seeded_session):
 
 # --- elements -------------------------------------------------------------
 
+
 def test_get_elements(session):
     result = elements.get_elements(session)
     assert all(isinstance(e, ElementResponse) for e in result)
@@ -64,6 +65,7 @@ def test_get_elements_by_type_no_match(session):
 
 
 # --- events ---------------------------------------------------------------
+
 
 def test_get_events(session):
     result = events.get_events(session)
@@ -112,6 +114,7 @@ def test_get_current_event_none_current(session):
 
 # --- teams ----------------------------------------------------------------
 
+
 def test_get_teams(session):
     result = teams.get_teams(session)
     assert all(isinstance(t, TeamResponse) for t in result)
@@ -152,6 +155,7 @@ def test_kit_colors_cover_a_full_league_in_hex():
 
 # --- fixtures -------------------------------------------------------------
 
+
 def test_get_fixtures(session):
     result = fixtures.get_fixtures(session)
     assert all(isinstance(f, FixtureResponse) for f in result)
@@ -159,7 +163,11 @@ def test_get_fixtures(session):
 
 
 def test_get_fixtures_upcoming(session):
-    assert [f.id for f in fixtures.get_fixtures(session, finished=False)] == [95, 91, 85]
+    assert [f.id for f in fixtures.get_fixtures(session, finished=False)] == [
+        95,
+        91,
+        85,
+    ]
 
 
 def test_get_fixtures_not_started(session):

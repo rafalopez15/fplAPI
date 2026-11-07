@@ -18,6 +18,7 @@ class EventResponse(BaseModel):
 
     The stats are null for gameweeks that haven't been played yet.
     """
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -50,9 +51,16 @@ class EventResponse(BaseModel):
         """Rebuild FPL's top_element_info from the two columns it's stored in."""
         if not hasattr(data, "top_element_points"):
             return data
-        fields = {name: getattr(data, name) for name in cls.model_fields if hasattr(data, name)}
+        fields = {
+            name: getattr(data, name)
+            for name in cls.model_fields
+            if hasattr(data, name)
+        }
         if data.top_element is not None and data.top_element_points is not None:
-            fields["top_element_info"] = {"id": data.top_element, "points": data.top_element_points}
+            fields["top_element_info"] = {
+                "id": data.top_element,
+                "points": data.top_element_points,
+            }
         return fields
 
 
@@ -61,6 +69,7 @@ class LiveElementResponse(BaseModel):
 
     minutes tells "0 points, didn't play" (0 minutes) from "0 points, played".
     """
+
     id: int
     total_points: Optional[int] = None
     minutes: Optional[int] = None

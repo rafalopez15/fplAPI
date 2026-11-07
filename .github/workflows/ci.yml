@@ -1,7 +1,7 @@
 name: CI
 
-# PRs run lint and tests, then post one comment with both summaries. Pushes to
-# main run them again on the merged code. Other branch pushes don't run CI
+# PRs run lint, formatting and tests, then post one comment with the summaries.
+# Pushes to main run them again on the merged code. Other branch pushes don't run CI
 # until a PR is opened, so PR branches don't run everything twice.
 on:
   pull_request:
@@ -44,6 +44,41 @@ jobs:
       with:
         name: ci-summary-pylint
         path: pylint-summary.md
+        if-no-files-found: ignore
+        retention-days: 7
+
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.13"
+    - name: Install Black
+      # Only the version pinned in requirements-dev.txt; the app isn't needed.
+      run: |
+        python -m pip install --upgrade pip
+        pip install "$(grep '^black==' requirements-dev.txt)"
+    - name: Check formatting with Black
+      # Fails if any file would change. The diff and the file list are saved for
+      # the summary, then shown in the log.
+      run: |
+        status=0
+        black --check --diff . > black.diff 2> black.log || status=$?
+        cat black.log black.diff
+        exit $status
+    - name: Summarize formatting
+      if: always()
+      run: |
+        python .github/scripts/summarize_black.py black.log black.diff formatting-summary.md
+    - name: Upload the summary for the PR comment
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: ci-summary-formatting
+        path: formatting-summary.md
         if-no-files-found: ignore
         retention-days: 7
 
@@ -96,9 +131,9 @@ jobs:
 
   report:
     name: PR comment
-    # Runs after lint and tests even when they fail, so failures get reported.
+    # Runs after the other jobs even when they fail, so failures get reported.
     if: always() && github.event_name == 'pull_request'
-    needs: [lint, test]
+    needs: [lint, format, test]
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -127,6 +162,8 @@ jobs:
           cat summaries/tests-summary.md 2>/dev/null || echo "## ⚠️ Tests didn't report results"
           echo
           cat summaries/pylint-summary.md 2>/dev/null || echo "## ⚠️ Pylint didn't report results"
+          echo
+          cat summaries/formatting-summary.md 2>/dev/null || echo "## ⚠️ Black didn't report results"
         } > comment.md
 
         comment_id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \

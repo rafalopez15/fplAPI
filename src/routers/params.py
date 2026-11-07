@@ -1,4 +1,5 @@
 """Path parameter types shared by the routers."""
+
 from typing import Annotated
 from fastapi import Path
 

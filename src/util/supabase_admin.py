@@ -3,6 +3,7 @@
 Separate from fpl_client.py, which is only for FPL. The key goes in the apikey and
 Authorization headers, as Supabase's own clients send it, and is never logged.
 """
+
 import logging
 from typing import NoReturn, Optional
 from uuid import UUID
@@ -27,8 +28,10 @@ def delete_user(user_id: UUID) -> None:
     try:
         response = requests.delete(
             f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}",
-            headers={"apikey": SUPABASE_SECRET_KEY,
-                     "Authorization": f"Bearer {SUPABASE_SECRET_KEY}"},
+            headers={
+                "apikey": SUPABASE_SECRET_KEY,
+                "Authorization": f"Bearer {SUPABASE_SECRET_KEY}",
+            },
             timeout=TIMEOUT,
         )
     except requests.RequestException as exc:

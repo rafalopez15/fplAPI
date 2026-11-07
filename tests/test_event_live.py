@@ -1,6 +1,7 @@
 # pytest fixtures are injected as same-named arguments.
 # pylint: disable=redefined-outer-name
 """GET /api/events/{id}/live and its service, which call FPL live (mocked here)."""
+
 from unittest.mock import Mock
 
 import pytest
@@ -29,12 +30,15 @@ def fetch(monkeypatch):
 
 # --- service -----------------------------------------------------------------
 
+
 def test_get_live_service_flattens_the_stats(fetch):
     result = events.get_live(9)
     fetch.assert_called_once_with(9)
     assert all(isinstance(item, LiveElementResponse) for item in result)
     assert [(i.id, i.total_points, i.minutes) for i in result] == [
-        (1, 5, 90), (2, 0, 12), (3, 0, 0),
+        (1, 5, 90),
+        (2, 0, 12),
+        (3, 0, 0),
     ]
 
 
@@ -50,13 +54,16 @@ def test_get_live_service_handles_missing_elements(fetch):
 
 # --- route -------------------------------------------------------------------
 
+
 @pytest.mark.usefixtures("fetch")
 def test_get_live(api):
     response = api.get("/api/events/9/live")
     assert response.status_code == 200
     body = response.json()
     assert body[0] == {"id": 1, "total_points": 5, "minutes": 90}
-    assert body[0].keys() == LiveElementResponse.model_fields.keys()  # no explain or bps
+    assert (
+        body[0].keys() == LiveElementResponse.model_fields.keys()
+    )  # no explain or bps
     assert response.headers["cache-control"] == events_router.LIVE_CACHE
 
 

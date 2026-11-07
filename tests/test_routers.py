@@ -23,6 +23,7 @@ def update_row(session, model, row_id, **values):
 
 # --- elements -------------------------------------------------------------
 
+
 def test_get_elements(client):
     response = client.get("/api/elements")
     assert response.status_code == 200
@@ -44,7 +45,9 @@ def test_element_decimals_are_numbers(client):
 
 def test_element_nullable_fields(client, seeded_session):
     update_row(
-        seeded_session, Element, 1,
+        seeded_session,
+        Element,
+        1,
         chance_of_playing_next_round=75,
         news_added=datetime(2026, 10, 20, 10, 30, 12, 123456, tzinfo=timezone.utc),
         ep_next=None,
@@ -98,7 +101,9 @@ ID_ROUTES = ["/api/elements/{}", "/api/elements/position/{}", "/api/events/{}"]
 
 
 @pytest.mark.parametrize("path", ID_ROUTES)
-@pytest.mark.parametrize("bad_id", ["0", "-1", "2147483648", "99999999999", "-99999999999"])
+@pytest.mark.parametrize(
+    "bad_id", ["0", "-1", "2147483648", "99999999999", "-99999999999"]
+)
 def test_ids_postgres_cant_store_are_422(client, path, bad_id):
     # Postgres integers stop at 2,147,483,647; past that the query fails with a 500.
     assert client.get(path.format(bad_id)).status_code == 422
@@ -122,6 +127,7 @@ def test_get_elements_by_type_not_found(client):
 
 
 # --- events ---------------------------------------------------------------
+
 
 def test_get_events(client):
     response = client.get("/api/events")
@@ -178,6 +184,7 @@ def test_get_current_event_not_found(client, seeded_session):
 
 # --- teams ----------------------------------------------------------------
 
+
 def test_get_teams(client):
     response = client.get("/api/teams")
     assert response.status_code == 200
@@ -204,7 +211,10 @@ def test_get_team_by_name(client):
 
 def test_teams_include_kit_colors(client):
     arsenal = client.get("/api/teams").json()[0]
-    assert (arsenal["primary_color"], arsenal["secondary_color"]) == ("#EF0107", "#FFFFFF")
+    assert (arsenal["primary_color"], arsenal["secondary_color"]) == (
+        "#EF0107",
+        "#FFFFFF",
+    )
 
 
 def test_get_team_by_name_not_found(client):
@@ -214,6 +224,7 @@ def test_get_team_by_name_not_found(client):
 
 
 # --- fixtures -------------------------------------------------------------
+
 
 def test_get_fixtures_in_kickoff_order_with_postponed_last(client):
     response = client.get("/api/fixtures")
@@ -225,10 +236,17 @@ def test_fixture_shape(client):
     body = client.get("/api/fixtures").json()
     assert body[0].keys() == FixtureResponse.model_fields.keys()
     assert body[0] == {
-        "id": 71, "event": 8, "team_h": 1, "team_a": 2,
-        "team_h_difficulty": 5, "team_a_difficulty": 4,
-        "kickoff_time": "2026-10-25T15:00:00Z", "started": True, "finished": True,
-        "team_h_score": 2, "team_a_score": 1,
+        "id": 71,
+        "event": 8,
+        "team_h": 1,
+        "team_a": 2,
+        "team_h_difficulty": 5,
+        "team_a_difficulty": 4,
+        "kickoff_time": "2026-10-25T15:00:00Z",
+        "started": True,
+        "finished": True,
+        "team_h_score": 2,
+        "team_a_score": 1,
     }
 
 

@@ -24,7 +24,9 @@ def test_engine_disables_prepared_statements(monkeypatch):
     # create_engine mocked, leaving the real src.util.database untouched.
     create_engine_mock = MagicMock()
     monkeypatch.setattr("sqlalchemy.create_engine", create_engine_mock)
-    spec = importlib.util.spec_from_file_location("database_under_test", database.__file__)
+    spec = importlib.util.spec_from_file_location(
+        "database_under_test", database.__file__
+    )
     spec.loader.exec_module(importlib.util.module_from_spec(spec))
 
     connect_args = create_engine_mock.call_args.kwargs["connect_args"]
@@ -49,6 +51,7 @@ def test_database_unreachable(monkeypatch, caplog):
 
 # --- sessions and sync state ----------------------------------------------
 
+
 def test_get_session_yields_and_closes_a_session():
     sessions = database.get_session()
     session = next(sessions)
@@ -59,13 +62,21 @@ def test_get_session_yields_and_closes_a_session():
 
 def test_last_successful_sync_ignores_failed_and_history_runs(db_session):
     finished = datetime(2026, 11, 2, 1, 17, tzinfo=timezone.utc)
-    db_session.add_all([
-        SyncRun(kind="bootstrap", status="succeeded", finished_at=finished),
-        SyncRun(kind="bootstrap", status="failed",
-                finished_at=datetime(2026, 11, 2, 2, 17, tzinfo=timezone.utc)),
-        SyncRun(kind="history", status="succeeded",
-                finished_at=datetime(2026, 11, 2, 3, 0, tzinfo=timezone.utc)),
-    ])
+    db_session.add_all(
+        [
+            SyncRun(kind="bootstrap", status="succeeded", finished_at=finished),
+            SyncRun(
+                kind="bootstrap",
+                status="failed",
+                finished_at=datetime(2026, 11, 2, 2, 17, tzinfo=timezone.utc),
+            ),
+            SyncRun(
+                kind="history",
+                status="succeeded",
+                finished_at=datetime(2026, 11, 2, 3, 0, tzinfo=timezone.utc),
+            ),
+        ]
+    )
     db_session.flush()
     assert database.last_successful_sync(db_session) == finished
 
@@ -73,11 +84,17 @@ def test_last_successful_sync_ignores_failed_and_history_runs(db_session):
 def test_last_successful_sync_by_kind(db_session):
     bootstrap = datetime(2026, 11, 2, 1, 17, tzinfo=timezone.utc)
     points = datetime(2026, 11, 1, 3, 17, tzinfo=timezone.utc)
-    db_session.add_all([
-        SyncRun(kind="bootstrap", status="succeeded", finished_at=bootstrap),
-        SyncRun(kind="event_points", event_id=9, status="succeeded", finished_at=points),
-        SyncRun(kind="event_points", event_id=10, status="failed", finished_at=bootstrap),
-    ])
+    db_session.add_all(
+        [
+            SyncRun(kind="bootstrap", status="succeeded", finished_at=bootstrap),
+            SyncRun(
+                kind="event_points", event_id=9, status="succeeded", finished_at=points
+            ),
+            SyncRun(
+                kind="event_points", event_id=10, status="failed", finished_at=bootstrap
+            ),
+        ]
+    )
     db_session.flush()
     assert database.last_successful_sync(db_session, "event_points") == points
     assert database.last_successful_sync(db_session) == bootstrap
@@ -100,14 +117,19 @@ def test_get_data_session_raises_before_the_first_sync(seeded_session):
 def test_get_last_sync_reads_through_last_successful_sync(monkeypatch):
     synced = datetime(2026, 11, 2, 1, 17, tzinfo=timezone.utc)
     kinds = []
-    monkeypatch.setattr(database, "last_successful_sync",
-                        lambda session, kind: kinds.append(kind) or synced)
+    monkeypatch.setattr(
+        database,
+        "last_successful_sync",
+        lambda session, kind: kinds.append(kind) or synced,
+    )
     assert database.get_last_sync() == synced
     assert database.get_last_sync("event_points") == synced
     assert kinds == ["bootstrap", "event_points"]
 
 
 def test_get_last_sync_returns_none_when_unreachable(monkeypatch, caplog):
-    monkeypatch.setattr(database, "engine", create_engine("postgresql+psycopg://x:x@localhost:1/x"))
+    monkeypatch.setattr(
+        database, "engine", create_engine("postgresql+psycopg://x:x@localhost:1/x")
+    )
     assert database.get_last_sync() is None
     assert "Couldn't read the last sync time" in caplog.text

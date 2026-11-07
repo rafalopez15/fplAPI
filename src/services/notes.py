@@ -8,6 +8,7 @@ write with deleted_at null) bring the note back.
 
 GET pages through the user's changes by synced_at, the server's time of each write.
 """
+
 import base64
 from datetime import datetime, timedelta
 from typing import Optional
@@ -45,7 +46,9 @@ def encode_cursor(synced_at: datetime, note_id: UUID) -> str:
 
 def decode_cursor(cursor: str) -> tuple[datetime, UUID]:
     try:
-        synced_at, note_id = base64.urlsafe_b64decode(cursor.encode()).decode().split("|")
+        synced_at, note_id = (
+            base64.urlsafe_b64decode(cursor.encode()).decode().split("|")
+        )
         parsed = datetime.fromisoformat(synced_at)
         if parsed.tzinfo is None:
             raise ValueError("cursor time has no timezone")
@@ -85,7 +88,9 @@ def list_changes(session: Session, user_id: UUID, since: Optional[str]) -> Notes
     )
 
 
-def save_note(session: Session, user_id: UUID, note_id: UUID, note: NoteRequest) -> NoteResponse:
+def save_note(
+    session: Session, user_id: UUID, note_id: UUID, note: NoteRequest
+) -> NoteResponse:
     """Create or update a note, unless the stored one is as new or newer.
 
     Returns the stored note either way, so the device can tell whether it won.
@@ -97,13 +102,19 @@ def save_note(session: Session, user_id: UUID, note_id: UUID, note: NoteRequest)
     if note.deleted_at is not None:
         values |= CLEARED
     ensure_profile(session, user_id)
-    statement = insert(Note).values(id=note_id, synced_at=func.clock_timestamp(), **values)
+    statement = insert(Note).values(
+        id=note_id, synced_at=func.clock_timestamp(), **values
+    )
     statement = statement.on_conflict_do_update(
         index_elements=[Note.id],
-        set_={name: statement.excluded[name] for name in (*values, "synced_at")
-              if name != "user_id"},
+        set_={
+            name: statement.excluded[name]
+            for name in (*values, "synced_at")
+            if name != "user_id"
+        },
         # Only the owner's notes, and only when this write is newer.
-        where=(Note.user_id == user_id) & (Note.updated_at < statement.excluded.updated_at),
+        where=(Note.user_id == user_id)
+        & (Note.updated_at < statement.excluded.updated_at),
     )
     written = session.scalars(
         statement.returning(Note), execution_options={"populate_existing": True}
@@ -114,7 +125,9 @@ def save_note(session: Session, user_id: UUID, note_id: UUID, note: NoteRequest)
     return result
 
 
-def delete_note(session: Session, user_id: UUID, note_id: UUID, updated_at: datetime) -> None:
+def delete_note(
+    session: Session, user_id: UUID, note_id: UUID, updated_at: datetime
+) -> None:
     """Delete a note as of updated_at (device time), unless it changed later since.
 
     A delete that loses, or of a note already deleted, does nothing. Raises
@@ -122,9 +135,15 @@ def delete_note(session: Session, user_id: UUID, note_id: UUID, updated_at: date
     """
     deleted = session.execute(
         update(Note)
-        .where(Note.id == note_id, Note.user_id == user_id, Note.updated_at < updated_at)
-        .values(deleted_at=updated_at, updated_at=updated_at,
-                synced_at=func.clock_timestamp(), **CLEARED)
+        .where(
+            Note.id == note_id, Note.user_id == user_id, Note.updated_at < updated_at
+        )
+        .values(
+            deleted_at=updated_at,
+            updated_at=updated_at,
+            synced_at=func.clock_timestamp(),
+            **CLEARED,
+        )
     ).rowcount
     if not deleted:
         _owned(session, user_id, note_id)

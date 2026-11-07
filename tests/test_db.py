@@ -1,5 +1,6 @@
-# pytest fixtures are injected as same-named arguments.
-# pylint: disable=redefined-outer-name
+# pytest fixtures are injected as same-named arguments, and the rows below repeat
+# conftest's FPL data as ORM objects on purpose.
+# pylint: disable=redefined-outer-name,duplicate-code
 from datetime import datetime
 from decimal import Decimal
 
@@ -63,6 +64,7 @@ def make_history(**overrides):
 
 # --- migrations ------------------------------------------------------------
 
+
 def test_migrations_match_models(db_engine, test_database_url):
     # Raises if the models have changes no migration covers.
     command.check(alembic_config(test_database_url))
@@ -89,10 +91,13 @@ def test_row_level_security_on_every_table(db_engine):
                 "WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace"
             )
         ).all()
-    assert dict(rows) == {table: True for table in ("alembic_version", *Base.metadata.tables)}
+    assert dict(rows) == {
+        table: True for table in ("alembic_version", *Base.metadata.tables)
+    }
 
 
 # --- elements --------------------------------------------------------------
+
 
 @pytest.mark.usefixtures("team_and_position")
 def test_element_round_trip(db_session):
@@ -128,6 +133,7 @@ def test_element_required_columns(db_session, field):
 
 # --- events ----------------------------------------------------------------
 
+
 def test_future_event_stats_can_be_null(db_session):
     db_session.add(make_event(id=20, name="Gameweek 20", is_current=False))
     db_session.flush()
@@ -141,7 +147,9 @@ def test_future_event_stats_can_be_null(db_session):
 
 def test_event_chip_plays_round_trip(db_session):
     chip_plays = [{"chip_name": "bboost", "num_played": 814606}]
-    db_session.add(make_event(chip_plays=chip_plays, top_element=115, top_element_points=17))
+    db_session.add(
+        make_event(chip_plays=chip_plays, top_element=115, top_element_points=17)
+    )
     db_session.flush()
     db_session.expire_all()
 
@@ -149,6 +157,7 @@ def test_event_chip_plays_round_trip(db_session):
 
 
 # --- player fixture history ------------------------------------------------
+
 
 @pytest.fixture
 def saka(db_session, team_and_position):  # pylint: disable=unused-argument
@@ -183,6 +192,7 @@ def test_history_requires_existing_player(db_session):
 
 
 # --- sync runs -------------------------------------------------------------
+
 
 def test_sync_run_defaults(db_session):
     run = SyncRun(kind="bootstrap", status="running")

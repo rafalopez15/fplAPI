@@ -26,12 +26,16 @@ engine = create_engine(
     pool_pre_ping=True,
     pool_size=DATABASE_POOL_SIZE,
     max_overflow=DATABASE_MAX_OVERFLOW,
-    connect_args={"connect_timeout": DATABASE_CONNECT_TIMEOUT, "prepare_threshold": None},
+    connect_args={
+        "connect_timeout": DATABASE_CONNECT_TIMEOUT,
+        "prepare_threshold": None,
+    },
 )
 
 
 class FplDataUnavailableError(Exception):
-    """Raised when no bootstrap sync has succeeded yet, so there's no FPL data to serve."""
+    """Raised when no bootstrap sync has succeeded yet, so there's no FPL data to
+    serve."""
 
 
 def get_session() -> Iterator[Session]:
@@ -40,7 +44,9 @@ def get_session() -> Iterator[Session]:
         yield session
 
 
-def last_successful_sync(session: Session, kind: str = "bootstrap") -> Optional[datetime]:
+def last_successful_sync(
+    session: Session, kind: str = "bootstrap"
+) -> Optional[datetime]:
     """When the last successful sync of this kind finished, or None if none has."""
     return session.scalar(
         select(func.max(SyncRun.finished_at)).where(

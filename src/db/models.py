@@ -5,12 +5,20 @@ FPL tables' column names match FPL's field names, so rows map 1:1 onto the Pydan
 response models. Ids are FPL's own, never generated here. FPL tables are only
 upserted, never deleted from, so players FPL drops stay for their history rows.
 """
+
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
 from sqlalchemy import (
-    CheckConstraint, DateTime, ForeignKey, Identity, Index, MetaData, Numeric, func,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Identity,
+    Index,
+    MetaData,
+    Numeric,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -67,6 +75,7 @@ class Team(Base):
 
 class ElementType(Base):
     """A position: 1 goalkeeper, 2 defender, 3 midfielder, 4 forward."""
+
     __tablename__ = "element_types"
 
     id: Mapped[int] = fpl_id()
@@ -83,6 +92,7 @@ class ElementType(Base):
 
 class Element(Base):
     """A player. Columns match ElementResponse, including which ones are required."""
+
     __tablename__ = "elements"
 
     # Required
@@ -151,6 +161,7 @@ class Event(Base):
     most_selected, top_element and the other player ids have no foreign key, so a
     player missing from elements can't fail a whole sync.
     """
+
     __tablename__ = "events"
 
     id: Mapped[int] = fpl_id()
@@ -185,6 +196,7 @@ class Fixture(Base):
     Scores are null until it's played. started is true from kickoff; FPL only sets
     finished once the gameweek's bonus points are confirmed, a day or more later.
     """
+
     __tablename__ = "fixtures"
 
     id: Mapped[int] = fpl_id()
@@ -206,6 +218,7 @@ class PlayerFixtureHistory(Base):
 
     Double gameweeks have two rows for the same round; blank gameweeks have none.
     """
+
     __tablename__ = "player_fixture_history"
 
     element: Mapped[int] = mapped_column(ForeignKey("elements.id"), primary_key=True)
@@ -249,10 +262,13 @@ class ElementEventPoints(Base):
     A double gameweek's two matches are already summed. Synced once the gameweek's
     bonus points are confirmed (events.data_checked), after which they don't change.
     """
+
     __tablename__ = "element_event_points"
 
     element: Mapped[int] = mapped_column(ForeignKey("elements.id"), primary_key=True)
-    event: Mapped[int] = mapped_column(ForeignKey("events.id"), primary_key=True, index=True)
+    event: Mapped[int] = mapped_column(
+        ForeignKey("events.id"), primary_key=True, index=True
+    )
     total_points: Mapped[Optional[int]]
     minutes: Mapped[Optional[int]]
     updated_at: Mapped[datetime] = updated_at()
@@ -260,11 +276,14 @@ class ElementEventPoints(Base):
 
 class SyncRun(Base):
     """One run of a sync job, so the API can report freshness and jobs can skip work."""
+
     __tablename__ = "sync_runs"
 
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
     kind: Mapped[str]  # "bootstrap", "event_points" or "history"
-    event_id: Mapped[Optional[int]]  # the gameweek an event_points or history run covered
+    event_id: Mapped[
+        Optional[int]
+    ]  # the gameweek an event_points or history run covered
     started_at: Mapped[datetime] = mapped_column(server_default=func.now())
     finished_at: Mapped[Optional[datetime]]
     status: Mapped[str]  # "running", "succeeded" or "failed"
@@ -278,6 +297,7 @@ class Profile(Base):
     Supabase's auth.users, because the test database has no auth schema, so
     deleting an account goes through the API.
     """
+
     __tablename__ = "profiles"
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
@@ -290,8 +310,11 @@ class UserTeam(Base):
     The key (user_id, manager_id) makes a team one or the other. manager_id is FPL's
     id, so the team's manager needn't have an account.
     """
+
     __tablename__ = "user_teams"
-    __table_args__ = (CheckConstraint("relation IN ('mine', 'following')", name="relation"),)
+    __table_args__ = (
+        CheckConstraint("relation IN ('mine', 'following')", name="relation"),
+    )
 
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True
@@ -309,15 +332,20 @@ class Note(Base):
     set, content cleared) so other devices learn about the delete. synced_at is the
     server's time of the last write, which GET /api/me/notes?since= pages through.
     """
+
     __tablename__ = "notes"
-    __table_args__ = (Index("ix_notes_user_id_synced_at", "user_id", "synced_at", "id"),)
+    __table_args__ = (
+        Index("ix_notes_user_id_synced_at", "user_id", "synced_at", "id"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"))
     text: Mapped[str]  # may be "": a skipped transfer note has no text yet
     gameweek: Mapped[Optional[int]]  # null if gameweeks couldn't load on the device
     players: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)  # [{id, web_name}]
-    transfer: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)  # transfer notes only
+    transfer: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSONB
+    )  # transfer notes only
     manager_id: Mapped[Optional[int]]  # the FPL team, when the device knows it
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
@@ -333,6 +361,7 @@ class DeletedAccount(Base):
     listed here, so nothing is stored for the account again. Only the id is kept, and
     Supabase never reuses ids, so rows are never removed.
     """
+
     __tablename__ = "deleted_accounts"
 
     user_id: Mapped[UUID] = mapped_column(primary_key=True)

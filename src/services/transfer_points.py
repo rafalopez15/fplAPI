@@ -12,6 +12,7 @@ A transfer of A in for B out, made for gameweek N, covers N until the gameweek
 before A is sold again, or the latest stored gameweek. A Free Hit transfer covers
 its gameweek only, and doesn't end an earlier one, because the squad reverts.
 """
+
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Optional
@@ -23,6 +24,7 @@ from src.db.models import Element, ElementEventPoints
 @dataclass
 class PointsData:
     """What the calculation needs from the database."""
+
     element_types: dict[int, int]  # element id -> position (1 GK ... 4 FWD)
     points: dict[tuple[int, int], int]  # (element, event) -> total_points
     latest_event: Optional[int]  # the newest gameweek with stored points
@@ -34,9 +36,11 @@ def load_points(session: Session, elements: set[int]) -> PointsData:
         select(Element.id, Element.element_type).where(Element.id.in_(elements))
     )
     rows = session.execute(
-        select(ElementEventPoints.element, ElementEventPoints.event,
-               ElementEventPoints.total_points)
-        .where(ElementEventPoints.element.in_(elements))
+        select(
+            ElementEventPoints.element,
+            ElementEventPoints.event,
+            ElementEventPoints.total_points,
+        ).where(ElementEventPoints.element.in_(elements))
     )
     return PointsData(
         element_types=dict(types.all()),
@@ -71,8 +75,11 @@ def _pair_by_position(ins, outs, element_types) -> list[dict]:
     for element, row in sorted(outs.items(), key=lambda item: item[1]["time"]):
         by_position[element_types.get(element)][1].append((element, row))
     return [
-        {**bought, "element_out": sold_element,
-         "element_out_cost": sold.get("element_out_cost")}
+        {
+            **bought,
+            "element_out": sold_element,
+            "element_out_cost": sold.get("element_out_cost"),
+        }
         for position_ins, position_outs in by_position.values()
         for (_, bought), (sold_element, sold) in zip(position_ins, position_outs)
     ]
@@ -83,7 +90,7 @@ def _gameweek(rows: list[dict], data: Optional[PointsData]) -> tuple[list, list,
     ins, outs = _real_changes(rows)
     flagged, real = [], []
     for row in rows:
-        is_real = (row["element_in"] in ins and row["element_out"] in outs)
+        is_real = row["element_in"] in ins and row["element_out"] in outs
         row = {**row, "is_churn": not is_real}
         if is_real:
             # Each real change is paired once: later rows with it are churn.
@@ -92,8 +99,10 @@ def _gameweek(rows: list[dict], data: Optional[PointsData]) -> tuple[list, list,
         flagged.append(row)
     sold = set(outs) | {row["element_out"] for row in real}
     if data is not None:
-        built = [{**row, "is_churn": False}
-                 for row in _pair_by_position(ins, outs, data.element_types)]
+        built = [
+            {**row, "is_churn": False}
+            for row in _pair_by_position(ins, outs, data.element_types)
+        ]
         real.extend(built)
         flagged.extend(built)
     elif ins or outs:
@@ -142,8 +151,13 @@ def _points(row, free_hits, sold_in, data) -> dict:
         end = min(end, data.latest_event)
 
     def total(element):
-        return sum(data.points.get((element, event), 0) for event in range(start, end + 1))
+        return sum(
+            data.points.get((element, event), 0) for event in range(start, end + 1)
+        )
 
     points_in, points_out = total(row["element_in"]), total(row["element_out"])
-    return {"points_in": points_in, "points_out": points_out,
-            "net_points": points_in - points_out}
+    return {
+        "points_in": points_in,
+        "points_out": points_out,
+        "net_points": points_in - points_out,
+    }

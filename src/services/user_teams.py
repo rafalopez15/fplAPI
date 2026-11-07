@@ -1,4 +1,5 @@
 """The FPL teams on a user's account: the ones they run and the ones they follow."""
+
 from typing import List
 from uuid import UUID
 from sqlalchemy import delete, func, select
@@ -39,7 +40,9 @@ def save_team(
     """
     if session.get(UserTeam, (user_id, manager_id)) is None:
         count = session.scalar(
-            select(func.count()).select_from(UserTeam).where(UserTeam.user_id == user_id)
+            select(func.count())
+            .select_from(UserTeam)
+            .where(UserTeam.user_id == user_id)
         )
         if count >= TEAM_LIMIT:
             raise TeamLimitError
@@ -53,7 +56,8 @@ def save_team(
         insert(UserTeam)
         .values(user_id=user_id, manager_id=manager_id, relation=relation)
         .on_conflict_do_update(
-            index_elements=[UserTeam.user_id, UserTeam.manager_id], set_={"relation": relation}
+            index_elements=[UserTeam.user_id, UserTeam.manager_id],
+            set_={"relation": relation},
         )
         .returning(UserTeam),
         execution_options={"populate_existing": True},
@@ -66,6 +70,8 @@ def save_team(
 def remove_team(session: Session, user_id: UUID, manager_id: int) -> None:
     """Remove a team from the account, if it's there."""
     session.execute(
-        delete(UserTeam).where(UserTeam.user_id == user_id, UserTeam.manager_id == manager_id)
+        delete(UserTeam).where(
+            UserTeam.user_id == user_id, UserTeam.manager_id == manager_id
+        )
     )
     session.commit()

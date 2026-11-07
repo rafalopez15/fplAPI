@@ -27,7 +27,8 @@ def get_me(user_id: CurrentUser, session: SessionDep) -> ProfileResponse:
 
 @me_router.delete("/me", status_code=204)
 def delete_me(user_id: CurrentUser, session: SessionDep) -> None:
-    """Delete the account: its notes, its teams and its sign-in. FPL teams aren't touched.
+    """Delete the account: its notes, its teams and its sign-in. FPL teams aren't
+    touched.
 
     All or nothing: 503 if it can't be done right now, with nothing changed, so it's
     safe to retry. After a 204, the account's token is refused for writes.
@@ -63,6 +64,8 @@ def put_my_team(
 
 
 @me_router.delete("/me/teams/{manager_id}", status_code=204)
-def delete_my_team(manager_id: ManagerId, user_id: CurrentUser, session: SessionDep) -> None:
+def delete_my_team(
+    manager_id: ManagerId, user_id: CurrentUser, session: SessionDep
+) -> None:
     """Remove a team from the account. 204 even if it wasn't there."""
     user_teams.remove_team(session, user_id, manager_id)

@@ -7,3 +7,5 @@ env
 __pycache__/
 test-results.xml
 pylint-report.json
+black.log
+black.diff

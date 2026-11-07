@@ -11,3 +11,7 @@ disable=
 # alembic.context and alembic.op are populated at runtime, so pylint can't see
 # their functions.
 ignored-modules=alembic.context,alembic.op
+
+[FORMAT]
+# The same limit as Black (pyproject.toml), so the two tools agree.
+max-line-length=88

@@ -1,6 +1,7 @@
 # pytest fixtures are injected as same-named arguments.
 # pylint: disable=redefined-outer-name
 """The FPL teams on a user's account: /api/me/teams and services/user_teams.py."""
+
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 from uuid import UUID, uuid4
@@ -37,8 +38,12 @@ def add_rows(session, user_id, *manager_ids, relation="following"):
     session.flush()
     start = datetime(2026, 11, 1, tzinfo=timezone.utc)
     session.add_all(
-        UserTeam(user_id=user_id, manager_id=manager_id, relation=relation,
-                 created_at=start + timedelta(minutes=i))
+        UserTeam(
+            user_id=user_id,
+            manager_id=manager_id,
+            relation=relation,
+            created_at=start + timedelta(minutes=i),
+        )
         for i, manager_id in enumerate(manager_ids)
     )
     session.flush()
@@ -49,6 +54,7 @@ def teams(api):
 
 
 # --- listing -------------------------------------------------------------------
+
 
 def test_no_teams_is_an_empty_list(api):
     response = api.get("/api/me/teams")
@@ -64,11 +70,14 @@ def test_teams_are_newest_first(api, seeded_session):
 def test_users_only_see_their_own_teams(client, signed_in, seeded_session):
     add_rows(seeded_session, OTHER_USER, 5)
     assert client.get("/api/me/teams", headers=signed_in()).json() == []
-    assert [t["manager_id"] for t in
-            client.get("/api/me/teams", headers=signed_in(OTHER_USER)).json()] == [5]
+    assert [
+        t["manager_id"]
+        for t in client.get("/api/me/teams", headers=signed_in(OTHER_USER)).json()
+    ] == [5]
 
 
 # --- adding and switching ------------------------------------------------------
+
 
 def test_adding_a_team_checks_fpl_and_saves_it(api, fetch_manager):
     response = api.put("/api/me/teams/1", json={"relation": "mine"})
@@ -92,11 +101,15 @@ def test_no_transaction_is_open_while_fpl_is_called(api, seeded_session, monkeyp
 @pytest.mark.usefixtures("fetch_manager")
 @pytest.mark.parametrize("method", ["PUT", "DELETE"])
 def test_team_id_too_big_for_postgres_is_422(api, method):
-    response = api.request(method, "/api/me/teams/2147483648", json={"relation": "mine"})
+    response = api.request(
+        method, "/api/me/teams/2147483648", json={"relation": "mine"}
+    )
     assert response.status_code == 422
 
 
-def test_adding_a_team_before_get_me_creates_the_profile(api, fetch_manager, seeded_session):
+def test_adding_a_team_before_get_me_creates_the_profile(
+    api, fetch_manager, seeded_session
+):
     # The app may save a team before it ever calls /api/me.
     assert api.put("/api/me/teams/1", json={"relation": "following"}).status_code == 200
     assert seeded_session.get(Profile, UUID(USER_ID)) is not None
@@ -115,7 +128,9 @@ def test_switching_a_team_skips_fpl_and_keeps_created_at(api, fetch_manager):
 
 
 def test_unknown_team_is_404_and_not_saved(api, monkeypatch):
-    monkeypatch.setattr(fpl_client, "fetch_manager", Mock(side_effect=FplNotFoundError()))
+    monkeypatch.setattr(
+        fpl_client, "fetch_manager", Mock(side_effect=FplNotFoundError())
+    )
     response = api.put("/api/me/teams/999999999", json={"relation": "following"})
     assert response.status_code == 404
     assert response.json() == {"detail": "Manager not found"}
@@ -123,7 +138,9 @@ def test_unknown_team_is_404_and_not_saved(api, monkeypatch):
 
 
 def test_fpl_down_is_503_and_not_saved(api, monkeypatch):
-    monkeypatch.setattr(fpl_client, "fetch_manager", Mock(side_effect=FplUnavailableError()))
+    monkeypatch.setattr(
+        fpl_client, "fetch_manager", Mock(side_effect=FplUnavailableError())
+    )
     response = api.put("/api/me/teams/1", json={"relation": "following"})
     assert response.status_code == 503
     assert response.json() == {"detail": "FPL is unavailable right now"}
@@ -145,7 +162,9 @@ def test_invalid_team_id_is_422(api):
 def test_a_team_over_the_limit_is_409(api, fetch_manager, seeded_session):
     add_rows(seeded_session, UUID(USER_ID), *range(1, TEAM_LIMIT + 1))
 
-    response = api.put(f"/api/me/teams/{TEAM_LIMIT + 1}", json={"relation": "following"})
+    response = api.put(
+        f"/api/me/teams/{TEAM_LIMIT + 1}", json={"relation": "following"}
+    )
     assert response.status_code == 409
     assert response.json() == {"detail": "Team limit reached"}
     fetch_manager.assert_not_called()
@@ -154,6 +173,7 @@ def test_a_team_over_the_limit_is_409(api, fetch_manager, seeded_session):
 
 
 # --- removing ------------------------------------------------------------------
+
 
 def test_removing_a_team(api, seeded_session):
     add_rows(seeded_session, UUID(USER_ID), 1, 2)
@@ -174,6 +194,7 @@ def test_removing_only_touches_your_own_teams(client, signed_in, seeded_session)
 
 
 # --- table ---------------------------------------------------------------------
+
 
 def test_deleting_a_profile_deletes_its_teams(seeded_session):
     add_rows(seeded_session, OTHER_USER, 1, 2)

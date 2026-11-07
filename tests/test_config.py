@@ -48,7 +48,10 @@ def test_get_env_raises_when_empty(monkeypatch):
 
 def test_base_url_defaults_to_fpl(monkeypatch):
     monkeypatch.delenv("FPL_BASE_URL", raising=False)
-    assert load_fresh_config(monkeypatch).FPL_BASE_URL == "https://fantasy.premierleague.com/api"
+    assert (
+        load_fresh_config(monkeypatch).FPL_BASE_URL
+        == "https://fantasy.premierleague.com/api"
+    )
 
 
 def test_base_url_from_env(monkeypatch):
@@ -59,7 +62,10 @@ def test_base_url_from_env(monkeypatch):
 @pytest.mark.parametrize("value", ["", "  "])
 def test_empty_base_url_falls_back_to_fpl(monkeypatch, value):
     monkeypatch.setenv("FPL_BASE_URL", value)
-    assert load_fresh_config(monkeypatch).FPL_BASE_URL == "https://fantasy.premierleague.com/api"
+    assert (
+        load_fresh_config(monkeypatch).FPL_BASE_URL
+        == "https://fantasy.premierleague.com/api"
+    )
 
 
 def test_strips_trailing_slash_from_base_url(monkeypatch):

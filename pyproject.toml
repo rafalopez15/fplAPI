@@ -1,0 +1,5 @@
+# Tool settings. The app's dependencies are in requirements.txt.
+
+[tool.black]
+line-length = 88
+target-version = ["py313"]

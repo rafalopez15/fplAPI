@@ -5,6 +5,7 @@ per user and can't be synced ahead of time. Vercel's CDN caches the responses
 Every function raises FplNotFoundError for an unknown manager and
 FplUnavailableError when FPL can't be reached.
 """
+
 import logging
 from typing import List, Optional
 from sqlalchemy.exc import SQLAlchemyError
@@ -63,4 +64,6 @@ def get_picks(manager_id: int, event: Optional[int] = None) -> Optional[PicksRes
         event = fpl_client.fetch_manager(manager_id).get("current_event")
         if event is None:
             return None
-    return PicksResponse.model_validate(fpl_client.fetch_manager_picks(manager_id, event))
+    return PicksResponse.model_validate(
+        fpl_client.fetch_manager_picks(manager_id, event)
+    )

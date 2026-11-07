@@ -21,7 +21,8 @@ def get_events(session: DataSession) -> List[EventResponse]:
 
 @events_router.get("/events/{event_id}")
 def get_event_by_id(session: DataSession, event_id: EventId) -> EventResponse:
-    """Get one gameweek by its number, e.g. 1 for Gameweek 1. Returns 404 if it doesn't exist."""
+    """Get one gameweek by its number, e.g. 1 for Gameweek 1. Returns 404 if it
+    doesn't exist."""
     result = events.get_event_by_id(session, event_id)
     if not result:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -51,7 +52,9 @@ def get_live(event_id: EventId, response: Response) -> List[LiveElementResponse]
         result = events.get_live(event_id)
     except FplNotFoundError as exc:
         raise HTTPException(
-            status_code=404, detail="Event not found", headers={"Cache-Control": "no-store"}
+            status_code=404,
+            detail="Event not found",
+            headers={"Cache-Control": "no-store"},
         ) from exc
     response.headers["Cache-Control"] = LIVE_CACHE
     return result

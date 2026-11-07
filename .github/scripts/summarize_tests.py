@@ -5,6 +5,7 @@
 The optional second argument also writes the Markdown to a file, which the CI
 workflow posts as a PR comment.
 """
+
 import os
 import sys
 import xml.etree.ElementTree as ET
@@ -73,8 +74,10 @@ def main():
     else:
         status = "✅ All tests passed"
 
-    print(f"{status}: {results['passed']}/{results['total']} passed ({percent:.1f}%), "
-          f"{results['skipped']} skipped")
+    print(
+        f"{status}: {results['passed']}/{results['total']} passed ({percent:.1f}%), "
+        f"{results['skipped']} skipped"
+    )
     for name, message in results["failures"]:
         print(f"  FAILED {name}: {message}")
 

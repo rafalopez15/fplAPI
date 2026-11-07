@@ -40,7 +40,8 @@ def _get_json(url: str, timeout: float = FPL_REQUEST_TIMEOUT):
 
 
 def fetch_bootstrap_static() -> dict:
-    """Fetch bootstrap-static: teams, positions, players and gameweeks. Used by the sync job."""
+    """Fetch bootstrap-static: teams, positions, players and gameweeks. Used by the
+    sync job."""
     return _get_json(BOOTSTRAP_STATIC_URL)
 
 

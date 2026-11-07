@@ -8,25 +8,25 @@ from src.models.team import TeamResponse
 # Keyed by team code, which stays the same each season (ids don't). Missing clubs
 # get null with no warning, so add promoted clubs and drop relegated ones each summer.
 KIT_COLORS = {
-    3: ("#EF0107", "#FFFFFF"),   # Arsenal
-    7: ("#670E36", "#95BFE5"),   # Aston Villa
+    3: ("#EF0107", "#FFFFFF"),  # Arsenal
+    7: ("#670E36", "#95BFE5"),  # Aston Villa
     91: ("#DA291C", "#000000"),  # Bournemouth
     94: ("#E30613", "#FFFFFF"),  # Brentford
     36: ("#0057B8", "#FFFFFF"),  # Brighton
-    8: ("#034694", "#FFFFFF"),   # Chelsea
-    9: ("#59CBE8", "#FFFFFF"),   # Coventry City
+    8: ("#034694", "#FFFFFF"),  # Chelsea
+    9: ("#59CBE8", "#FFFFFF"),  # Coventry City
     31: ("#1B458F", "#C4122E"),  # Crystal Palace
     11: ("#003399", "#FFFFFF"),  # Everton
     54: ("#FFFFFF", "#000000"),  # Fulham
     88: ("#F5A12D", "#000000"),  # Hull City
     40: ("#0044A9", "#FFFFFF"),  # Ipswich Town
-    2: ("#FFFFFF", "#1D428A"),   # Leeds
+    2: ("#FFFFFF", "#1D428A"),  # Leeds
     14: ("#C8102E", "#FFFFFF"),  # Liverpool
     43: ("#6CABDD", "#FFFFFF"),  # Man City
-    1: ("#DA291C", "#FFFFFF"),   # Man Utd
-    4: ("#000000", "#FFFFFF"),   # Newcastle
+    1: ("#DA291C", "#FFFFFF"),  # Man Utd
+    4: ("#000000", "#FFFFFF"),  # Newcastle
     17: ("#DD0000", "#FFFFFF"),  # Nott'm Forest
-    6: ("#FFFFFF", "#132257"),   # Spurs
+    6: ("#FFFFFF", "#132257"),  # Spurs
     56: ("#EB172B", "#FFFFFF"),  # Sunderland
 }
 
