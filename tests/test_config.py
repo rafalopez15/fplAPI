@@ -148,3 +148,13 @@ def test_empty_supabase_url_is_none(monkeypatch, value):
 def test_supabase_url_strips_whitespace_and_trailing_slash(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", " https://test-ref.supabase.co/ ")
     assert load_fresh_config(monkeypatch).SUPABASE_URL == "https://test-ref.supabase.co"
+
+
+def test_supabase_secret_key_defaults_to_none(monkeypatch):
+    monkeypatch.delenv("SUPABASE_SECRET_KEY", raising=False)
+    assert load_fresh_config(monkeypatch).SUPABASE_SECRET_KEY is None
+
+
+def test_supabase_secret_key_strips_whitespace(monkeypatch):
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", " sb_secret_test\n")
+    assert load_fresh_config(monkeypatch).SUPABASE_SECRET_KEY == "sb_secret_test"

@@ -36,3 +36,6 @@ DATABASE_MAX_OVERFLOW = int(os.getenv("DATABASE_MAX_OVERFLOW", "2"))
 # The Supabase project whose sign-in tokens the account routes accept, e.g.
 # https://<ref>.supabase.co. None when unset: account routes then return 503.
 SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/") or None
+# The same project's secret key, for deleting accounts through Supabase's Admin API.
+# None when unset: DELETE /api/me then returns 503. Never log it.
+SUPABASE_SECRET_KEY = (os.getenv("SUPABASE_SECRET_KEY") or "").strip() or None
