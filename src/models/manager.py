@@ -10,7 +10,8 @@ from pydantic import BaseModel
 
 
 class ManagerResponse(BaseModel):
-    """A manager's FPL team, from entry/{id}/. FPL's leagues, kit and badge are left out.
+    """A manager's FPL team, from entry/{id}/. FPL's leagues, kit and badge are left
+    out.
 
     So is the manager's real name (player_first_name, player_last_name): it never
     leaves the API. Next to anonymous comments it makes harassment easy (FPL-45).
@@ -91,7 +92,8 @@ class HistoryResponse(BaseModel):
 
 
 class Pick(BaseModel):
-    """One player in a squad. position 1-11 is the starting XI, 12-15 the bench in order."""
+    """One player in a squad. position 1-11 is the starting XI, 12-15 the bench in
+    order."""
 
     element: int
     position: int

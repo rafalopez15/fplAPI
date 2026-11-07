@@ -21,7 +21,8 @@ def get_events(session: DataSession) -> List[EventResponse]:
 
 @events_router.get("/events/{event_id}")
 def get_event_by_id(session: DataSession, event_id: EventId) -> EventResponse:
-    """Get one gameweek by its number, e.g. 1 for Gameweek 1. Returns 404 if it doesn't exist."""
+    """Get one gameweek by its number, e.g. 1 for Gameweek 1. Returns 404 if it
+    doesn't exist."""
     result = events.get_event_by_id(session, event_id)
     if not result:
         raise HTTPException(status_code=404, detail="Event not found")

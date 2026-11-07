@@ -1,6 +1,7 @@
 # pytest fixtures are injected as same-named arguments.
 # pylint: disable=redefined-outer-name
-"""Deleting an account: DELETE /api/me, services/profiles.py and util/supabase_admin.py."""
+"""Deleting an account: DELETE /api/me, services/profiles.py and
+util/supabase_admin.py."""
 
 from unittest.mock import Mock
 from uuid import UUID, uuid4
@@ -241,7 +242,8 @@ def test_writes_take_the_account_lock(seeded_session):
     profiles.ensure_profile(seeded_session, uuid4())
     held = seeded_session.scalar(
         text(
-            "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid()"
+            "SELECT count(*) FROM pg_locks"
+            " WHERE locktype = 'advisory' AND pid = pg_backend_pid()"
         )
     )
     assert held == 1

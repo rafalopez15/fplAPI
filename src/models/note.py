@@ -9,7 +9,8 @@ StoredId = Annotated[int, Field(gt=0, le=2_147_483_647)]
 
 
 class NotePlayer(BaseModel):
-    """A player on a note, with the name saved so the note shows without the player list."""
+    """A player on a note, with the name saved so the note shows without the player
+    list."""
 
     id: StoredId  # the element id
     web_name: str = Field(max_length=50)

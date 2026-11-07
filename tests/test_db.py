@@ -1,5 +1,6 @@
-# pytest fixtures are injected as same-named arguments.
-# pylint: disable=redefined-outer-name
+# pytest fixtures are injected as same-named arguments, and the rows below repeat
+# conftest's FPL data as ORM objects on purpose.
+# pylint: disable=redefined-outer-name,duplicate-code
 from datetime import datetime
 from decimal import Decimal
 

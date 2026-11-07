@@ -1,5 +1,6 @@
 # Alembic requires names like revision, and file names start with the revision id.
-# pylint: disable=invalid-name
+# Migrations repeat the same column definitions, which isn't duplicated logic.
+# pylint: disable=invalid-name,duplicate-code
 """add deleted accounts
 
 Revision ID: cc3d8a78f677

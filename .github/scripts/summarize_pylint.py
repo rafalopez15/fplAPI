@@ -36,7 +36,8 @@ def to_markdown(status, score, counts, messages):
         for msg in messages:
             escaped = msg["message"].replace("|", r"\|")
             lines.append(
-                f"| `{msg['path']}:{msg['line']}` | `{msg['messageId']}` {msg['symbol']} "
+                f"| `{msg['path']}:{msg['line']}` "
+                f"| `{msg['messageId']}` {msg['symbol']} "
                 f"| {escaped} |"
             )
     return "\n".join(lines) + "\n"
@@ -67,7 +68,8 @@ def main():
     print(f"{status}: score {score:.2f}/10" + (f" ({breakdown})" if breakdown else ""))
     for msg in messages:
         print(
-            f"  {msg['path']}:{msg['line']} {msg['messageId']} {msg['symbol']}: {msg['message']}"
+            f"  {msg['path']}:{msg['line']} {msg['messageId']} {msg['symbol']}: "
+            f"{msg['message']}"
         )
 
     write_markdown(to_markdown(status, score, counts, messages), markdown_path)

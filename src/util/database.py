@@ -34,7 +34,8 @@ engine = create_engine(
 
 
 class FplDataUnavailableError(Exception):
-    """Raised when no bootstrap sync has succeeded yet, so there's no FPL data to serve."""
+    """Raised when no bootstrap sync has succeeded yet, so there's no FPL data to
+    serve."""
 
 
 def get_session() -> Iterator[Session]:

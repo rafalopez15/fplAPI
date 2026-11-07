@@ -62,7 +62,8 @@ def bootstrap():
 
 
 def run(engine, data):
-    """Sync data, serving "fixtures" from the fixtures fetch and the rest from bootstrap."""
+    """Sync data, serving "fixtures" from the fixtures fetch and the rest from
+    bootstrap."""
     bootstrap = {key: value for key, value in data.items() if key != "fixtures"}
     return job.sync_bootstrap(
         engine,
@@ -330,7 +331,8 @@ class FakeLive:
 
 @pytest.fixture
 def synced(engine, bootstrap):
-    """Bootstrap data with gameweek 8 finished and confirmed, 9 in progress, 10 to come."""
+    """Bootstrap data with gameweek 8 finished and confirmed, 9 in progress, 10 to
+    come."""
     bootstrap["events"] = [finished_event(8), make_event(), future_event()]
     run(engine, bootstrap)
     return bootstrap

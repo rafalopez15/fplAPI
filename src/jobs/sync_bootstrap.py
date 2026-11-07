@@ -1,10 +1,11 @@
-"""Sync FPL's bootstrap-static and fixtures into Postgres. GitHub Actions runs it hourly.
+"""Sync FPL's bootstrap-static and fixtures into Postgres. GitHub Actions runs it
+hourly.
 
     python -m src.jobs.sync_bootstrap
 
 Upserts teams, element_types, elements, events and fixtures in one transaction, so
-a failed run leaves the previous data in place. Unchanged rows aren't rewritten, and rows
-are never deleted: players FPL drops stay for their history. Every run is
+a failed run leaves the previous data in place. Unchanged rows aren't rewritten, and
+rows are never deleted: players FPL drops stay for their history. Every run is
 recorded in sync_runs.
 
 Then stores each newly finished gameweek's points per player (element_event_points),

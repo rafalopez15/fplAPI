@@ -68,7 +68,8 @@ async def account_deleted_handler(
 async def fpl_unavailable_handler(
     _request: Request, _exc: FplUnavailableError
 ) -> JSONResponse:
-    """Return 503 when a live call to FPL fails. Never cached, so the next request retries.
+    """Return 503 when a live call to FPL fails. Never cached, so the next request
+    retries.
 
     The detail differs from the sync's "FPL data is currently unavailable", so the
     logs and the app can tell the two apart.

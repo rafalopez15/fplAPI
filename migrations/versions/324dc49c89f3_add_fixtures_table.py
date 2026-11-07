@@ -1,5 +1,6 @@
 # Alembic requires names like revision, and file names start with the revision id.
-# pylint: disable=invalid-name
+# Migrations repeat the same column definitions, which isn't duplicated logic.
+# pylint: disable=invalid-name,duplicate-code
 """add fixtures table
 
 Revision ID: 324dc49c89f3

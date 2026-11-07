@@ -30,7 +30,8 @@ def transfer(element_in, element_out, event, minute=0, **overrides):
 
 
 def data(points, latest=9, types=None):
-    """PointsData from {element: {event: points}}. Players 10-19 are MIDs, 20-29 FWDs."""
+    """PointsData from {element: {event: points}}. Players 10-19 are MIDs, 20-29
+    FWDs."""
     return PointsData(
         element_types=types or {e: MID if e < 20 else FWD for e in range(10, 30)},
         points={

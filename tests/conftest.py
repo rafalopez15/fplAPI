@@ -12,22 +12,22 @@ os.environ.setdefault(
 os.environ["SUPABASE_URL"] = ""
 os.environ["SUPABASE_SECRET_KEY"] = ""  # likewise for account deletion
 
-import time  # pylint: disable=wrong-import-position
-from pathlib import Path  # pylint: disable=wrong-import-position
-from types import SimpleNamespace  # pylint: disable=wrong-import-position
+# These imports come after the environment setup above, on purpose.
+# pylint: disable=wrong-import-position
+import time
+from pathlib import Path
+from types import SimpleNamespace
 
-import jwt  # pylint: disable=wrong-import-position
-import pytest  # pylint: disable=wrong-import-position
-from alembic import command  # pylint: disable=wrong-import-position
-from alembic.config import Config  # pylint: disable=wrong-import-position
-from cryptography.hazmat.primitives.asymmetric import (
-    ec,
-)  # pylint: disable=wrong-import-position
-from fastapi.testclient import TestClient  # pylint: disable=wrong-import-position
-from sqlalchemy import create_engine, func  # pylint: disable=wrong-import-position
-from sqlalchemy.orm import Session  # pylint: disable=wrong-import-position
-from main import app  # pylint: disable=wrong-import-position
-from src.db.models import (  # pylint: disable=wrong-import-position
+import jwt
+import pytest
+from alembic import command
+from alembic.config import Config
+from cryptography.hazmat.primitives.asymmetric import ec
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, func
+from sqlalchemy.orm import Session
+from main import app
+from src.db.models import (
     Element,
     ElementType,
     Event,
@@ -35,8 +35,10 @@ from src.db.models import (  # pylint: disable=wrong-import-position
     SyncRun,
     Team,
 )
-from src.jobs.sync_bootstrap import to_row  # pylint: disable=wrong-import-position
-from src.util import auth, database  # pylint: disable=wrong-import-position
+from src.jobs.sync_bootstrap import to_row
+from src.util import auth, database
+
+# pylint: enable=wrong-import-position
 
 
 def make_element(**overrides):
@@ -275,7 +277,8 @@ def make_fpl_transfers():
 
 
 def make_fpl_history():
-    """FPL's entry/{id}/history/ response, including fields HistoryResponse leaves out."""
+    """FPL's entry/{id}/history/ response, including fields HistoryResponse leaves
+    out."""
     gameweek = {
         "event": 1,
         "points": 72,
