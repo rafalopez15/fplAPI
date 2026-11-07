@@ -77,9 +77,36 @@ def test_deleting_an_account_that_never_called_the_api(client, signed_in):
     assert client.delete("/api/me", headers=signed_in()).status_code == 204
 
 
+def not_found(body):
+    """A 404 from Supabase with this JSON body (or a body that isn't JSON)."""
+    response = Mock(ok=False, status_code=404)
+    if isinstance(body, Exception):
+        response.json.side_effect = body
+    else:
+        response.json.return_value = body
+    return response
+
+
+# Supabase's answer for a user it doesn't have, as checked on staging.
+USER_NOT_FOUND = {"code": 404, "error_code": "user_not_found", "msg": "User not found"}
+
+
 def test_a_user_supabase_no_longer_has_counts_as_deleted(account, supabase):
-    supabase.return_value = Mock(ok=False, status_code=404)
+    supabase.return_value = not_found(USER_NOT_FOUND)
     assert account.delete("/api/me").status_code == 204
+
+
+@pytest.mark.parametrize("body", [
+    {"message": "no Route matched with those values"},  # a wrong SUPABASE_URL path
+    {"code": 404, "error_code": "not_found"},
+    ["user_not_found"],
+    ValueError("not JSON"),
+])
+def test_any_other_404_isnt_a_deletion(account, supabase, seeded_session, body):
+    # Counting it as done would delete the notes but leave the email in Supabase.
+    supabase.return_value = not_found(body)
+    assert account.delete("/api/me").status_code == 503
+    assert rows(seeded_session, Profile, UUID(USER_ID)) == 1
 
 
 @pytest.mark.usefixtures("supabase")
@@ -106,6 +133,13 @@ def test_supabase_failing_changes_nothing(account, supabase, seeded_session,
     assert [rows(seeded_session, m, user) for m in (Profile, Note, UserTeam)] == [1, 1, 1]
     assert seeded_session.get(DeletedAccount, user) is None
     assert supabase.call_count == 0  # the failing mock replaced it
+
+
+def test_failures_are_logged_without_the_key(account, supabase, caplog):
+    supabase.return_value = Mock(ok=False, status_code=401)
+    account.delete("/api/me")
+    assert f"Couldn't delete Supabase user {USER_ID}: Supabase answered 401" in caplog.text
+    assert "sb_secret_test" not in caplog.text
 
 
 @pytest.mark.parametrize("missing", ["SUPABASE_URL", "SUPABASE_SECRET_KEY"])
