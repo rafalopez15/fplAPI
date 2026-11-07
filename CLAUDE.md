@@ -54,7 +54,8 @@ src/
     fixtures.py          /fixtures (optional ?finished= and ?started= filters)
     managers.py          /managers/{id}, /managers/{id}/transfers, /managers/{id}/history,
                          /managers/{id}/picks?event= (live from FPL)
-    me.py                /me: the signed-in user's account (Supabase sign-in token);
+    me.py                /me: the signed-in user's account (Supabase sign-in token), and
+                         DELETE /me to delete it;
                          /me/teams, /me/teams/{manager_id}: their teams and followed teams
     notes.py             /me/notes, /me/notes/{note_id}: notes synced across devices
   services/              Business logic: queries that return Pydantic models
@@ -70,6 +71,7 @@ src/
     sync_bootstrap.py    Hourly job: upserts bootstrap-static, then finished gameweeks' points
   util/
     auth.py              CurrentUser: checks the Supabase access token, returns the user id
+    supabase_admin.py    Supabase's Auth Admin API (delete_user), with the secret key
     config.py            Reads .env (python-dotenv) into module-level constants
     database.py          Engine, session dependencies (DataSession), sync state, health checks
     fpl_client.py        All FPL calls: the sync job's fetches and the live ones (manager*, event_live)
@@ -147,6 +149,11 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
 - **Anonymous sign-ins stay off** in Supabase (the default). Supabase gives anonymous users `aud: "authenticated"` too, so `CurrentUser` would accept them and `/api/me` would create profiles for them. If they're ever wanted, reject `is_anonymous: true` in `CurrentUser` first.
 - **`SUPABASE_URL`** is optional. Unset, account routes return 503 and nothing else changes. It's per environment: previews accept only staging's tokens, so iOS Debug builds pointed at a preview sign in against staging.
 - **`profiles`** has one row per account (`id` = the Supabase user id, `created_at`), created by `ensure_profile()` on the first `GET /api/me`, or the first write: anything that writes an account table calls it first, since the app may save a team before it ever calls `/api/me`. It has no foreign key to `auth.users`, because the test database has no `auth` schema; deleting an account goes through the API (FPL-51). Account tables reference `profiles` with `ON DELETE CASCADE`.
+- **Deleting an account** (`DELETE /api/me`, FPL-51) removes the profile, which cascades to its notes and teams, and the Supabase user, through the Admin API with `SUPABASE_SECRET_KEY` (optional; unset, it's 503). All or nothing: the rows are deleted, Supabase is called, and only then is the transaction committed; if Supabase fails, `delete_account()` rolls back and the route returns 503, so a retry starts clean. A user Supabase no longer has counts as deleted, so a retry after a lost response is a 204.
+  - **This is the one deliberate exception to "don't hold a transaction across an HTTP call"** (see `user_teams`): committing first could leave the person's email in Supabase. It's one call per account, ever, bounded by `supabase_admin.TIMEOUT` (3s connect, 5s read).
+  - **`deleted_accounts`** keeps the id of every deleted account, forever (only the id; Supabase never reuses them). A deleted user's token still verifies for up to an hour, and a client may still flush queued writes, so `ensure_profile()` refuses listed ids with `AccountDeletedError`, which `main.py` turns into 401 `"Not signed in"`. Reads with that token just come back empty.
+  - Both take a per-account advisory lock (`pg_advisory_xact_lock`), so a write racing a deletion waits for it and then sees `deleted_accounts`.
+  - Apple token revocation is FPL-55's: there are no Apple users until Sign in with Apple exists.
 - **`user_teams`** (FPL-50) are the FPL teams on an account, keyed `(user_id, manager_id)`: `relation` is `mine` (teams they run; people often run several) or `following`, never both. The followed team's manager needn't have an account. `PUT /api/me/teams/{manager_id}` adds a team (checking it exists on FPL, one call) or switches its relation (no FPL call), as an upsert so a double tap can't collide. It ends its read transaction before calling FPL, so a slow FPL doesn't hold a pooler connection; do the same in any request that calls FPL after querying. At most 10 teams per account (`TEAM_LIMIT`), which bounds the FPL calls that syncing followed teams' activity will cost. No team names in the response: the app gets them from `/api/managers/{id}`, cached at the CDN.
 - **`notes`** (FPL-49) are synced across a user's devices. The fields match the iOS `Note` model: `text` (may be `""`), `gameweek` (nullable), `players` (JSONB `[{id, web_name}]`, names saved so a note shows without the player list), `transfer` (JSONB, transfer notes only), `manager_id` (nullable), and the device's `created_at` and `updated_at`.
   - **The device makes the id and every write sends the whole note** (`PUT /api/me/notes/{note_id}`). The newer `updated_at` wins; an older or equal one keeps the stored note, and the response is always the stored note, so the device can tell it lost. Retries are harmless.
@@ -167,6 +174,8 @@ Use these status codes consistently:
 | Invalid path parameter: not an integer, 0 or less, or over Postgres's `integer` maximum (see `src/routers/params.py`) | **422** (FastAPI default) |
 | Account route without a valid sign-in token (missing, malformed, expired, wrong `aud`/`iss`, forged, or HS256) | **401** `"Not signed in"`, with `WWW-Authenticate: Bearer` |
 | Account route when `SUPABASE_URL` isn't set, or Supabase's keys can't be fetched | **503** `"Sign-in is unavailable right now"` |
+| A write with the token of an account that's been deleted | **401** `"Not signed in"`, with `WWW-Authenticate: Bearer` |
+| `DELETE /api/me` when Supabase fails or `SUPABASE_SECRET_KEY` isn't set (nothing is deleted) | **503** `"Couldn't delete your account right now"` |
 | Adding a team to an account that already has 10 | **409** `"Team limit reached"` |
 | A note that doesn't exist or is another user's (never 403, so ids reveal nothing) | **404** `"Note not found"` |
 | A `?since=` cursor the API didn't issue | **422** `"Invalid cursor"` |
@@ -188,7 +197,7 @@ Use these status codes consistently:
   - Sets the required env vars before importing `src`, so tests don't need a `.env` file (e.g. in CI).
   - FPL-shaped builders (`make_team()`, `make_element()`, `make_event()`, `future_event()`, `ELEMENT_TYPES`) are shared by the API and sync tests.
   - `seeded_session` loads a small dataset into the test database through the sync job's `to_row()`: 2 teams, 4 positions, 3 players (Saka, Haaland, Palmer), gameweeks 8 to 10 and a successful sync run. `client` is a `TestClient` whose requests use that session. Change data in a test by editing rows in `seeded_session`.
-  - The autouse fixture `block_network` makes any real `requests.get` call fail the test. Mock it with `monkeypatch` when a test needs a response.
+  - The autouse fixture `block_network` makes any real `requests.get` (FPL) or `requests.delete` (Supabase's Admin API) call fail the test. Mock it with `monkeypatch` when a test needs a response; `tests/test_account_deletion.py`'s `supabase` fixture does it for the Admin API.
   - The autouse fixture `block_database` does the same for `database.engine.connect`. Patch `database.is_database_reachable` (or `engine.connect`) when a test hits `/healthcheck`.
   - `SUPABASE_URL` is forced empty, so sign-in is off. The `jwks` fixture turns it on with a local EC key pair and a fake JWKS client, and `make_token()` signs Supabase-shaped tokens with it. For account routes, use `signed_in`: `signed_in()` returns the headers for `USER_ID`, `signed_in(other_id)` for anyone else. Tests never call Supabase.
   - Database tests use a real Postgres from `TEST_DATABASE_URL` (in `.env` locally, a service container in CI). `db_engine` migrates it from scratch once per run, and `db_session` rolls back each test's changes, even after `commit()`. The fixture refuses a Supabase URL. Without `TEST_DATABASE_URL`, the database tests fail with setup instructions.
