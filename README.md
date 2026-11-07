@@ -30,7 +30,7 @@ python3 -m venv env            # the venv lives in env/; .env is the config file
 source env/bin/activate
 pip install -r requirements-dev.txt
 cp .env.example .env           # then fill in DATABASE_URL
-alembic upgrade head           # create or update the database schema
+# Supabase's schema comes from the Migrate database workflow (see Migrations), not from here.
 ```
 
 `.env` is gitignored. These are its settings:
@@ -62,7 +62,7 @@ The API uses a PostgreSQL database hosted on Supabase's free plan.
    DATABASE_URL=postgresql+psycopg://postgres.<project-ref>:<password>@<pooler-host>.pooler.supabase.com:5432/postgres?sslmode=require
    ```
    If the password contains `@`, `:`, `/`, `?`, `#` or `%`, URL-encode those characters (e.g. `@` becomes `%40`).
-4. Run `alembic upgrade head`, then start the app and open `/healthcheck`. It should return `{"status": "ok", "database": "ok"}`.
+4. Add the GitHub secret (see Scheduled jobs below) and run **Migrate database** from the Actions tab: it creates the schema. Then start the app and open `/healthcheck`. It should return `{"status": "ok", "database": "ok"}`.
 
 Keep in mind:
 - Never commit `DATABASE_URL` or paste it anywhere public: it contains the password.
@@ -70,7 +70,7 @@ Keep in mind:
 - If you reset the database password in Supabase, update `DATABASE_URL` in `.env`, in Vercel and in the GitHub secret.
 
 ## 🔀 Migrations (Alembic)
-Schema changes are versioned migrations in `migrations/versions/`. Alembic reads the connection string from `DATABASE_URL`, so **commands run against whichever database `.env` points at**.
+Schema changes are versioned migrations in `migrations/versions/`. Alembic reads the connection string from `DATABASE_URL`, so **commands run against whichever database `.env` points at**. Run them against the local test database (`DATABASE_URL=$TEST_DATABASE_URL alembic ...`). Supabase is migrated only by the **Migrate database** workflow: staging on the PR, production on merge, with the hourly sync held off while it runs. Don't run `alembic upgrade head` against Supabase yourself.
 
 ```bash
 alembic upgrade head                        # apply all pending migrations
@@ -83,8 +83,8 @@ alembic downgrade -1                        # undo the most recent migration
 To change the schema:
 1. Run `alembic revision -m "describe the change"`.
 2. Fill in `upgrade()` and `downgrade()` in the new file, using `op.create_table`, `op.add_column` and so on.
-3. Run `alembic upgrade head`, then check the result in the Supabase table editor.
-4. Commit the migration file with the code that uses it.
+3. Run the tests: they migrate the test database from scratch, so a broken migration fails them.
+4. Commit the migration file with the code that uses it, and open a PR. **Migrate database** applies it to staging for the PR's preview; check the result in staging's table editor. It reaches production when the PR merges.
 
 Don't edit a migration that has already been applied: add a new one instead.
 
