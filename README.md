@@ -261,5 +261,7 @@ Set `TEST_DATABASE_URL` in `.env` (the value from `.env.example` matches the con
 ```bash
 python -m pytest                 # tests with a coverage report; fails under 95%
 pylint $(git ls-files '*.py')    # lint with the settings in .pylintrc
+black .                          # format the code (settings in pyproject.toml)
+black --check .                  # what CI checks: fails if any file would change
 ```
-Apart from the test database, the tests need no network access, and they use dummy values for the other settings. CI runs both on every pull request and on pushes to `main`, with its own Postgres container, and posts the results as a comment on the PR. The comment is updated on each push.
+Apart from the test database, the tests need no network access, and they use dummy values for the other settings. CI runs all three on every pull request and on pushes to `main`, with its own Postgres container, and posts the results as a comment on the PR. The comment is updated on each push.
