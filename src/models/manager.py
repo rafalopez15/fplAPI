@@ -9,11 +9,13 @@ from pydantic import BaseModel
 
 
 class ManagerResponse(BaseModel):
-    """A manager's FPL team, from entry/{id}/. FPL's leagues, kit and badge are left out."""
+    """A manager's FPL team, from entry/{id}/. FPL's leagues, kit and badge are left out.
+
+    So is the manager's real name (player_first_name, player_last_name): it never
+    leaves the API. Next to anonymous comments it makes harassment easy (FPL-45).
+    """
     id: int
-    name: str  # the team's name
-    player_first_name: str  # the manager's name
-    player_last_name: str
+    name: str  # the team's name, the only name the app shows
     current_event: Optional[int] = None
     started_event: Optional[int] = None
     favourite_team: Optional[int] = None

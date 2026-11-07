@@ -162,8 +162,10 @@ def make_fixture(**overrides):
 def make_fpl_manager(**overrides):
     """FPL's entry/{id}/ response, including fields ManagerResponse leaves out."""
     manager = {
-        "id": 1, "name": "Solio Moose", "player_first_name": "Chris",
-        "player_last_name": "Musson", "current_event": 9, "started_event": 1,
+        "id": 1, "name": "Solio Moose",
+        # The manager's real name: FPL sends it, the API never passes it on.
+        "player_first_name": "Chris", "player_last_name": "Musson",
+        "current_event": 9, "started_event": 1,
         "favourite_team": 14, "player_region_name": "England",
         "summary_overall_points": 563, "summary_overall_rank": 1571477,
         "summary_event_points": 55, "summary_event_rank": 1972509,
