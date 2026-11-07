@@ -5,7 +5,8 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
 from src.util import database
-from src.util.auth import ACCOUNT_CACHE
+from src.services.profiles import AccountDeletedError
+from src.util.auth import ACCOUNT_CACHE, not_signed_in
 from src.util.database import FplDataUnavailableError
 from src.util.fpl_client import FplUnavailableError
 from src.routers import routers
@@ -47,6 +48,15 @@ async def database_unavailable_handler(
     """Return 503 when the database can't be reached."""
     logger.warning("Database unavailable: %s", exc.orig)
     return JSONResponse(status_code=503, content=UNAVAILABLE)
+
+
+@app.exception_handler(AccountDeletedError)
+async def account_deleted_handler(_request: Request, _exc: AccountDeletedError) -> JSONResponse:
+    """A deleted account's token still verifies until it expires; refuse it like any
+    bad token, so the app treats it as signed out."""
+    refused = not_signed_in()
+    return JSONResponse(status_code=refused.status_code, content={"detail": refused.detail},
+                        headers=refused.headers)
 
 
 @app.exception_handler(FplUnavailableError)

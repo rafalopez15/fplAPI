@@ -45,6 +45,7 @@ cp .env.example .env           # then fill in DATABASE_URL
 | `DATABASE_POOL_SIZE` | No | Database connections each process keeps open (default 3) |
 | `DATABASE_MAX_OVERFLOW` | No | Extra connections allowed under load (default 2) |
 | `SUPABASE_URL` | No | The Supabase project whose sign-in tokens `/api/me` accepts, e.g. `https://<ref>.supabase.co`. Without it, account routes return 503 (see Sign-in) |
+| `SUPABASE_SECRET_KEY` | No | The same project's secret key, for deleting accounts (`DELETE /api/me`). Without it, deleting returns 503. Never commit or log it |
 | `TEST_DATABASE_URL` | For tests | Local Postgres used by the test suite (see Tests and linting) |
 
 The app won't start if a required variable is missing.
@@ -142,6 +143,8 @@ curl -s https://<ref>.supabase.co/auth/v1/verify -H "apikey: $KEY" -H "Content-T
 ```
 The second returns a JSON session; its `access_token` works as the Bearer token for `/api/me` on a preview.
 
+**Deleting accounts** (`DELETE /api/me`) uses Supabase's Admin API, which needs the project's secret key: **Project Settings → API Keys → Secret keys**, a key named `fpl_account_deletion`. It goes in Vercel as `SUPABASE_SECRET_KEY`, marked **Sensitive**, staging's for **Preview**. It bypasses all of Supabase's security, so never paste it anywhere else; if it leaks, revoke it there and create a new one.
+
 ### Hourly trigger (Supabase pg_cron)
 GitHub runs scheduled workflows on a best-effort basis: on 2 November 2026 it ran 2 of about 27 hourly syncs. So Supabase starts the sync instead. Every hour at :17 UTC, a `pg_cron` job in the database uses `pg_net` to call GitHub's [workflow dispatch API](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event), the same thing the **Run workflow** button does. These runs show in Actions as `workflow_dispatch`, started by the token's owner.
 
@@ -230,6 +233,7 @@ In the Vercel project, under **Settings → Environment Variables**, set:
 |---|---|
 | `DATABASE_URL` | Production: production's **transaction pooler** URL. Preview: [staging's](#staging-database-for-previews). Mark both **Sensitive**. |
 | `SUPABASE_URL` | Optional. Preview: staging's project URL (`https://<ref>.supabase.co`). Production: production's, once its sign-in is set up (FPL-55). Not secret. |
+| `SUPABASE_SECRET_KEY` | Optional, for account deletion. Preview: staging's secret key. Production: production's, with FPL-55. Mark it **Sensitive**. |
 
 Get it from **Connect → Transaction pooler** in Supabase and change it as in the Database section: `postgresql+psycopg://` at the start, `?sslmode=require` at the end. It ends in `:6543/postgres?sslmode=require`.
 

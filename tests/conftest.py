@@ -5,9 +5,10 @@ import os
 # Config is read at import time, so make sure it exists before importing src.
 # This keeps the suite independent of a local .env file (e.g. in CI).
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://test:test@localhost:5432/test")
-# Sign-in stays off unless a test turns it on (test_auth.py's jwks fixture), even if
+# Sign-in stays off unless a test turns it on (the jwks fixture below), even if
 # .env sets it. load_dotenv doesn't override variables that are already set.
 os.environ["SUPABASE_URL"] = ""
+os.environ["SUPABASE_SECRET_KEY"] = ""  # likewise for account deletion
 
 import time  # pylint: disable=wrong-import-position
 from pathlib import Path  # pylint: disable=wrong-import-position
@@ -374,12 +375,13 @@ def signed_in(jwks, signing_key):  # pylint: disable=unused-argument
 
 @pytest.fixture(autouse=True)
 def block_network(monkeypatch):
-    """Fail loudly if any test reaches the real FPL API."""
+    """Fail loudly if any test reaches the real FPL API or Supabase."""
 
     def _blocked(*args, **kwargs):
         raise AssertionError(f"Unexpected network call: {args} {kwargs}")
 
     monkeypatch.setattr("src.util.fpl_client.requests.get", _blocked)
+    monkeypatch.setattr("src.util.supabase_admin.requests.delete", _blocked)
 
 
 @pytest.fixture(autouse=True)
