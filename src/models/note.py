@@ -10,12 +10,14 @@ StoredId = Annotated[int, Field(gt=0, le=2_147_483_647)]
 
 class NotePlayer(BaseModel):
     """A player on a note, with the name saved so the note shows without the player list."""
+
     id: StoredId  # the element id
     web_name: str = Field(max_length=50)
 
 
 class NoteTransfer(BaseModel):
     """The transfer a transfer note is about. Costs are in tenths of a million."""
+
     player_in: NotePlayer
     player_out: NotePlayer
     cost: Optional[int] = None
@@ -29,6 +31,7 @@ class NoteRequest(BaseModel):
     Times need a timezone. Bump updated_at on every change, deleting and undoing a
     delete included: the newer updated_at wins.
     """
+
     text: str = Field(max_length=MAX_TEXT)  # "" is allowed
     gameweek: Optional[Annotated[int, Field(ge=1, le=38)]] = None
     players: List[NotePlayer] = Field(default=[], max_length=MAX_PLAYERS)
@@ -42,6 +45,7 @@ class NoteRequest(BaseModel):
 class NoteResponse(BaseModel):
     """A note as stored, built from a notes row. A deleted one has deleted_at set and
     its content cleared."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -57,6 +61,7 @@ class NoteResponse(BaseModel):
 
 class NotesPage(BaseModel):
     """GET /api/me/notes: changes oldest first, and the cursor for the next call."""
+
     notes: List[NoteResponse]
     cursor: str  # pass as ?since= next time
     more: bool  # true when another page is waiting: call again straight away

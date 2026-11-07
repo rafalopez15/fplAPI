@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict
 
 class TeamResponse(BaseModel):
     """A Premier League team, built from a teams row."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int

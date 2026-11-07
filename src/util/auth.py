@@ -6,6 +6,7 @@ at a JWKS URL, so the API checks tokens locally. The key set is cached in memory
 key id.
 FPL routes never use this, so they work the same with or without a token.
 """
+
 import logging
 from typing import Annotated, Optional
 from uuid import UUID
@@ -27,7 +28,8 @@ ISSUER = f"{SUPABASE_URL}/auth/v1" if SUPABASE_URL else None
 # each key with no expiry, so a key revoked in Supabase would keep working.
 jwks_client = (
     jwt.PyJWKClient(f"{ISSUER}/.well-known/jwks.json", timeout=JWKS_TIMEOUT)
-    if ISSUER else None
+    if ISSUER
+    else None
 )
 
 # auto_error=False, so a missing header gets our 401 rather than FastAPI's 403.
@@ -76,7 +78,9 @@ def get_current_user(
         return UUID(claims["sub"])
     except (jwt.PyJWKClientConnectionError, jwt.PyJWKSetError) as exc:
         # The URL isn't secret, and a wrong SUPABASE_URL shows up here as a 401.
-        logger.warning("Couldn't fetch Supabase's signing keys from %s: %s", jwks_client.uri, exc)
+        logger.warning(
+            "Couldn't fetch Supabase's signing keys from %s: %s", jwks_client.uri, exc
+        )
         raise sign_in_unavailable() from exc
     # PyJWKClientError here is a key id Supabase doesn't have: a forged token.
     except (jwt.InvalidTokenError, jwt.PyJWKClientError, ValueError) as exc:

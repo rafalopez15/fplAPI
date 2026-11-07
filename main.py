@@ -51,16 +51,23 @@ async def database_unavailable_handler(
 
 
 @app.exception_handler(AccountDeletedError)
-async def account_deleted_handler(_request: Request, _exc: AccountDeletedError) -> JSONResponse:
+async def account_deleted_handler(
+    _request: Request, _exc: AccountDeletedError
+) -> JSONResponse:
     """A deleted account's token still verifies until it expires; refuse it like any
     bad token, so the app treats it as signed out."""
     refused = not_signed_in()
-    return JSONResponse(status_code=refused.status_code, content={"detail": refused.detail},
-                        headers=refused.headers)
+    return JSONResponse(
+        status_code=refused.status_code,
+        content={"detail": refused.detail},
+        headers=refused.headers,
+    )
 
 
 @app.exception_handler(FplUnavailableError)
-async def fpl_unavailable_handler(_request: Request, _exc: FplUnavailableError) -> JSONResponse:
+async def fpl_unavailable_handler(
+    _request: Request, _exc: FplUnavailableError
+) -> JSONResponse:
     """Return 503 when a live call to FPL fails. Never cached, so the next request retries.
 
     The detail differs from the sync's "FPL data is currently unavailable", so the
@@ -88,7 +95,9 @@ async def healthcheck() -> dict[str, Optional[str]]:
     last_sync = last_points_sync = None
     if reachable:
         last_sync = await asyncio.to_thread(database.get_last_sync)
-        last_points_sync = await asyncio.to_thread(database.get_last_sync, "event_points")
+        last_points_sync = await asyncio.to_thread(
+            database.get_last_sync, "event_points"
+        )
     return {
         "status": "ok",
         "database": "ok" if reachable else "unavailable",

@@ -10,6 +10,7 @@ class ElementResponse(BaseModel):
     None, so if FPL drops a field or starts sending null for it, the endpoints
     return null for that field instead of failing.
     """
+
     model_config = ConfigDict(from_attributes=True)
 
     # Required

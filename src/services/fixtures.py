@@ -14,7 +14,9 @@ def get_fixtures(
     still to be played; finished=False also includes played matches whose bonus
     points FPL hasn't confirmed yet.
     """
-    query = select(Fixture).order_by(Fixture.kickoff_time.asc().nulls_last(), Fixture.id)
+    query = select(Fixture).order_by(
+        Fixture.kickoff_time.asc().nulls_last(), Fixture.id
+    )
     if finished is not None:
         query = query.where(Fixture.finished == finished)
     if started is not None:

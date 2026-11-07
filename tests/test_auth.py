@@ -1,6 +1,7 @@
 # pytest fixtures are injected as same-named arguments.
 # pylint: disable=redefined-outer-name
 """Sign-in tokens (util/auth.py) and the account routes under /api/me."""
+
 import importlib.util
 import time
 from uuid import UUID, uuid4
@@ -18,6 +19,7 @@ from tests.conftest import ISSUER, USER_ID, bearer, make_token
 
 # --- tokens --------------------------------------------------------------------
 
+
 @pytest.mark.usefixtures("jwks")
 def test_valid_token_returns_the_profile(client, signing_key, seeded_session):
     response = client.get("/api/me", headers=bearer(make_token(signing_key)))
@@ -29,12 +31,15 @@ def test_valid_token_returns_the_profile(client, signing_key, seeded_session):
 
 
 @pytest.mark.usefixtures("jwks")
-@pytest.mark.parametrize("headers", [
-    {},
-    {"Authorization": "Basic dXNlcjpwYXNz"},
-    {"Authorization": "Bearer"},
-    {"Authorization": "Bearer not-a-token"},
-])
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"Authorization": "Basic dXNlcjpwYXNz"},
+        {"Authorization": "Bearer"},
+        {"Authorization": "Bearer not-a-token"},
+    ],
+)
 def test_missing_or_malformed_token_is_401(client, headers):
     response = client.get("/api/me", headers=headers)
     assert response.status_code == 401
@@ -44,16 +49,19 @@ def test_missing_or_malformed_token_is_401(client, headers):
 
 
 @pytest.mark.usefixtures("jwks")
-@pytest.mark.parametrize("claims", [
-    {"exp": int(time.time()) - 60},
-    {"exp": None},
-    {"aud": "anon"},
-    {"aud": None},
-    {"iss": "https://other-ref.supabase.co/auth/v1"},
-    {"sub": None},
-    {"sub": "not-a-uuid"},
-    {"sub": 123},  # PyJWT rejects a sub that isn't a string
-])
+@pytest.mark.parametrize(
+    "claims",
+    [
+        {"exp": int(time.time()) - 60},
+        {"exp": None},
+        {"aud": "anon"},
+        {"aud": None},
+        {"iss": "https://other-ref.supabase.co/auth/v1"},
+        {"sub": None},
+        {"sub": "not-a-uuid"},
+        {"sub": 123},  # PyJWT rejects a sub that isn't a string
+    ],
+)
 def test_token_with_bad_claims_is_401(client, signing_key, claims):
     response = client.get("/api/me", headers=bearer(make_token(signing_key, **claims)))
     assert response.status_code == 401
@@ -62,7 +70,9 @@ def test_token_with_bad_claims_is_401(client, signing_key, claims):
 @pytest.mark.usefixtures("jwks")
 def test_token_signed_with_another_key_is_401(client):
     other_key = ec.generate_private_key(ec.SECP256R1())
-    assert client.get("/api/me", headers=bearer(make_token(other_key))).status_code == 401
+    assert (
+        client.get("/api/me", headers=bearer(make_token(other_key))).status_code == 401
+    )
 
 
 @pytest.mark.usefixtures("jwks")
@@ -78,10 +88,13 @@ def test_legacy_shared_secret_token_is_401(client):
     assert client.get("/api/me", headers=bearer(token)).status_code == 401
 
 
-@pytest.mark.parametrize("error", [
-    jwt.PyJWKClientConnectionError("timed out"),
-    jwt.PyJWKSetError("The JWK Set did not contain any usable keys"),
-])
+@pytest.mark.parametrize(
+    "error",
+    [
+        jwt.PyJWKClientConnectionError("timed out"),
+        jwt.PyJWKSetError("The JWK Set did not contain any usable keys"),
+    ],
+)
 def test_unreachable_keys_are_503(client, jwks, signing_key, error, caplog):
     jwks.error = error
     response = client.get("/api/me", headers=bearer(make_token(signing_key)))
@@ -129,6 +142,7 @@ def test_fpl_routes_ignore_tokens(client):
 
 # --- profiles ------------------------------------------------------------------
 
+
 def test_first_call_creates_the_profile_and_later_calls_return_it(seeded_session):
     user_id = uuid4()
     first = profiles.get_profile(seeded_session, user_id)
@@ -146,7 +160,9 @@ def test_database_down_is_503_and_private(signing_key):
 
     app.dependency_overrides[database.get_session] = failing_session
     try:
-        response = TestClient(app).get("/api/me", headers=bearer(make_token(signing_key)))
+        response = TestClient(app).get(
+            "/api/me", headers=bearer(make_token(signing_key))
+        )
     finally:
         app.dependency_overrides.clear()
     assert response.status_code == 503
@@ -155,12 +171,15 @@ def test_database_down_is_503_and_private(signing_key):
 
 # --- caching -------------------------------------------------------------------
 
+
 def is_account_path(path):
     return path == "/api/me" or path.startswith("/api/me/")
 
 
 ACCOUNT_ROUTES = sorted(
-    (route.path, method) for route in app.routes if is_account_path(getattr(route, "path", ""))
+    (route.path, method)
+    for route in app.routes
+    if is_account_path(getattr(route, "path", ""))
     for method in route.methods
 )
 

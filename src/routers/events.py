@@ -51,7 +51,9 @@ def get_live(event_id: EventId, response: Response) -> List[LiveElementResponse]
         result = events.get_live(event_id)
     except FplNotFoundError as exc:
         raise HTTPException(
-            status_code=404, detail="Event not found", headers={"Cache-Control": "no-store"}
+            status_code=404,
+            detail="Event not found",
+            headers={"Cache-Control": "no-store"},
         ) from exc
     response.headers["Cache-Control"] = LIVE_CACHE
     return result

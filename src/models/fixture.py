@@ -11,6 +11,7 @@ class FixtureResponse(BaseModel):
     finished once the gameweek's bonus points are confirmed, a day or more after
     the match, so use started to find matches still to be played.
     """
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int

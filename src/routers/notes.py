@@ -23,7 +23,9 @@ def note_not_found() -> HTTPException:
 def get_notes(
     user_id: CurrentUser,
     session: SessionDep,
-    since: Annotated[Optional[str], Query(description="The cursor from the last call")] = None,
+    since: Annotated[
+        Optional[str], Query(description="The cursor from the last call")
+    ] = None,
 ) -> NotesPage:
     """List the notes changed since the cursor, oldest first, deletions included.
 
@@ -59,7 +61,8 @@ def delete_note(
     user_id: CurrentUser,
     session: SessionDep,
     updated_at: Annotated[
-        AwareDatetime, Query(description="When it was deleted on the device (ISO 8601, use Z)")
+        AwareDatetime,
+        Query(description="When it was deleted on the device (ISO 8601, use Z)"),
     ],
 ) -> None:
     """Delete a note as of updated_at, the same as a PUT with deleted_at set.

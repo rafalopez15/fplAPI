@@ -5,6 +5,7 @@
 The optional second argument also writes the Markdown to a file, which the CI
 workflow posts as a PR comment.
 """
+
 import json
 import os
 import sys
@@ -20,10 +21,18 @@ def to_markdown(status, score, counts, messages):
         "",
         "| Score | " + " | ".join(c.capitalize() for c in CATEGORIES) + " |",
         "|---|" + "---|" * len(CATEGORIES),
-        f"| {score:.2f}/10 | " + " | ".join(str(counts.get(c, 0)) for c in CATEGORIES) + " |",
+        f"| {score:.2f}/10 | "
+        + " | ".join(str(counts.get(c, 0)) for c in CATEGORIES)
+        + " |",
     ]
     if messages:
-        lines += ["", "### Issues", "", "| Location | Code | Message |", "|---|---|---|"]
+        lines += [
+            "",
+            "### Issues",
+            "",
+            "| Location | Code | Message |",
+            "|---|---|---|",
+        ]
         for msg in messages:
             escaped = msg["message"].replace("|", r"\|")
             lines.append(
@@ -49,11 +58,17 @@ def main():
     counts = stats["messageTypeCount"]
     messages = data["messages"]
 
-    status = f"❌ {len(messages)} pylint issue(s)" if messages else "✅ No pylint issues"
-    breakdown = ", ".join(f"{counts.get(c, 0)} {c}" for c in CATEGORIES if counts.get(c))
+    status = (
+        f"❌ {len(messages)} pylint issue(s)" if messages else "✅ No pylint issues"
+    )
+    breakdown = ", ".join(
+        f"{counts.get(c, 0)} {c}" for c in CATEGORIES if counts.get(c)
+    )
     print(f"{status}: score {score:.2f}/10" + (f" ({breakdown})" if breakdown else ""))
     for msg in messages:
-        print(f"  {msg['path']}:{msg['line']} {msg['messageId']} {msg['symbol']}: {msg['message']}")
+        print(
+            f"  {msg['path']}:{msg['line']} {msg['messageId']} {msg['symbol']}: {msg['message']}"
+        )
 
     write_markdown(to_markdown(status, score, counts, messages), markdown_path)
 

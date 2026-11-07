@@ -35,6 +35,7 @@ def error_response(status_code, text):
 
 # --- fetch_bootstrap_static -----------------------------------------------
 
+
 def test_fetch_bootstrap_static_returns_data(monkeypatch):
     get = mock_get(monkeypatch, ok_response({"teams": []}))
 
@@ -71,7 +72,9 @@ def test_fetch_fixtures_returns_list(monkeypatch):
     get = mock_get(monkeypatch, ok_response([{"id": 1}]))
 
     assert fpl_client.fetch_fixtures() == [{"id": 1}]
-    get.assert_called_once_with(FIXTURES_URL, timeout=FPL_REQUEST_TIMEOUT, headers=HEADERS)
+    get.assert_called_once_with(
+        FIXTURES_URL, timeout=FPL_REQUEST_TIMEOUT, headers=HEADERS
+    )
 
 
 def test_fetch_fixtures_raises_on_error_status(monkeypatch):
@@ -93,21 +96,26 @@ def test_requests_identify_fplapi():
 
 # --- manager endpoints (called live by the API) ---------------------------
 
+
 @pytest.mark.parametrize(
     "fetch, path",
     [
         (fpl_client.fetch_manager, "1/"),
         (fpl_client.fetch_manager_transfers, "1/transfers/"),
         (fpl_client.fetch_manager_history, "1/history/"),
-        (lambda manager_id: fpl_client.fetch_manager_picks(manager_id, 9),
-         "1/event/9/picks/"),
+        (
+            lambda manager_id: fpl_client.fetch_manager_picks(manager_id, 9),
+            "1/event/9/picks/",
+        ),
     ],
 )
 def test_manager_fetches_use_the_proxy_timeout(monkeypatch, fetch, path):
     get = mock_get(monkeypatch, ok_response({"ok": True}))
 
     assert fetch(1) == {"ok": True}
-    get.assert_called_once_with(ENTRY_URL + path, timeout=FPL_PROXY_TIMEOUT, headers=HEADERS)
+    get.assert_called_once_with(
+        ENTRY_URL + path, timeout=FPL_PROXY_TIMEOUT, headers=HEADERS
+    )
 
 
 def test_event_live_uses_the_proxy_timeout(monkeypatch):
@@ -160,7 +168,9 @@ def test_fpl_unreachable_raises_unavailable(monkeypatch, caplog, error):
 def test_fpl_maintenance_page_raises_unavailable(monkeypatch):
     # During updates FPL serves an HTML "The game is being updated" page.
     response = Mock(status_code=200)
-    response.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", "<html>", 0)
+    response.json.side_effect = requests.exceptions.JSONDecodeError(
+        "Expecting value", "<html>", 0
+    )
     mock_get(monkeypatch, response)
 
     with pytest.raises(FplUnavailableError):

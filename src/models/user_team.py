@@ -8,6 +8,7 @@ Relation = Literal["mine", "following"]
 
 class TeamRequest(BaseModel):
     """The body of PUT /api/me/teams/{manager_id}."""
+
     relation: Relation
 
 
@@ -16,6 +17,7 @@ class UserTeamResponse(BaseModel):
 
     No team name: the app gets it from /api/managers/{id}, which the CDN caches.
     """
+
     model_config = ConfigDict(from_attributes=True)
 
     manager_id: int

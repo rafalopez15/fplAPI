@@ -9,7 +9,9 @@ fixtures_router = APIRouter()
 
 @fixtures_router.get("/fixtures")
 def get_fixtures(
-    session: DataSession, finished: Optional[bool] = None, started: Optional[bool] = None
+    session: DataSession,
+    finished: Optional[bool] = None,
+    started: Optional[bool] = None,
 ) -> List[FixtureResponse]:
     """List the season's fixtures, ordered by kickoff. Postponed fixtures without a
     kickoff time come last.

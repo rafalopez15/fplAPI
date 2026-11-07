@@ -3,6 +3,7 @@
 Field names are FPL's. Only identity fields are required, so a field FPL drops
 comes back as null instead of failing the request.
 """
+
 from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel
@@ -14,6 +15,7 @@ class ManagerResponse(BaseModel):
     So is the manager's real name (player_first_name, player_last_name): it never
     leaves the API. Next to anonymous comments it makes harassment easy (FPL-45).
     """
+
     id: int
     name: str  # the team's name, the only name the app shows
     current_event: Optional[int] = None
@@ -38,6 +40,7 @@ class TransferResponse(BaseModel):
     player was owned, and null for churn, before the first gameweek is finished, or
     when the stored points can't be read (services/transfer_points.py).
     """
+
     element_in: int
     element_out: int
     event: int
@@ -52,6 +55,7 @@ class TransferResponse(BaseModel):
 
 class GameweekHistory(BaseModel):
     """A manager's result in one gameweek. bank and value are in tenths of a million."""
+
     event: int
     points: Optional[int] = None
     total_points: Optional[int] = None
@@ -66,6 +70,7 @@ class GameweekHistory(BaseModel):
 
 class ChipUsed(BaseModel):
     """A chip the manager played, e.g. "bboost" or "wildcard"."""
+
     name: str
     event: int
     time: Optional[datetime] = None
@@ -79,6 +84,7 @@ class PastSeason(BaseModel):
 
 class HistoryResponse(BaseModel):
     """A manager's history, from entry/{id}/history/, with FPL's three lists."""
+
     current: List[GameweekHistory]
     chips: List[ChipUsed]
     past: List[PastSeason]
@@ -86,6 +92,7 @@ class HistoryResponse(BaseModel):
 
 class Pick(BaseModel):
     """One player in a squad. position 1-11 is the starting XI, 12-15 the bench in order."""
+
     element: int
     position: int
     # 0 on the bench, 1 playing, 2 captain, 3 triple captain.
@@ -97,6 +104,7 @@ class Pick(BaseModel):
 
 class AutomaticSub(BaseModel):
     """A bench player FPL brought on for a starter who didn't play."""
+
     element_in: int
     element_out: int
     event: int
@@ -108,6 +116,7 @@ class PicksResponse(BaseModel):
     entry_history is the manager's result that gameweek; its event field says which
     gameweek this is.
     """
+
     active_chip: Optional[str] = None  # "wildcard", "freehit", "bboost", "3xc" or null
     picks: List[Pick]
     automatic_subs: List[AutomaticSub]

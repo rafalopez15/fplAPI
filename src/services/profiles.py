@@ -17,9 +17,10 @@ def _lock_account(session: Session, user_id: UUID) -> None:
     Without it, a write that started during a deletion could check deleted_accounts
     before the deletion commits, then recreate the profile right after.
     """
-    session.execute(select(func.pg_advisory_xact_lock(
-        func.hashtextextended(text(":user_id"), 0)
-    )), {"user_id": str(user_id)})
+    session.execute(
+        select(func.pg_advisory_xact_lock(func.hashtextextended(text(":user_id"), 0))),
+        {"user_id": str(user_id)},
+    )
 
 
 def ensure_profile(session: Session, user_id: UUID) -> None:
@@ -53,7 +54,9 @@ def delete_account(session: Session, user_id: UUID) -> None:
     Supabase no longer has counts as deleted.
     """
     _lock_account(session, user_id)
-    session.execute(insert(DeletedAccount).values(user_id=user_id).on_conflict_do_nothing())
+    session.execute(
+        insert(DeletedAccount).values(user_id=user_id).on_conflict_do_nothing()
+    )
     session.execute(delete(Profile).where(Profile.id == user_id))  # cascades
     try:
         supabase_admin.delete_user(user_id)
