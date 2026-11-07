@@ -31,7 +31,7 @@ python -m src.jobs.sync_bootstrap    # sync bootstrap-static into the database i
 docker build -t fplapi:local . && docker run --rm -p 8000:8000 --env-file .env fplapi:local
 python -m pytest                     # tests + coverage report (fails under 95%)
 pylint $(git ls-files '*.py')        # lint, same as CI (config in .pylintrc)
-alembic upgrade head                 # apply database migrations (uses DATABASE_URL)
+alembic upgrade head                 # migrate the local or test database in DATABASE_URL (Supabase: migrate.yml)
 alembic revision -m "describe change" # new migration in migrations/versions/
 colima start && docker start fplapi-test-db  # local test database (setup in README)
 ```
@@ -126,7 +126,7 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
   - In the FPL tables, ids are FPL's, never generated (`autoincrement=False`). Decimals are `numeric`, timestamps are `timestamptz`.
   - FPL rows are upserted, never deleted. `events.most_selected` and the other player ids deliberately have no foreign key, so a missing player can't fail a sync.
 - **Row-level security:** Supabase's Data API is off, and every table has RLS enabled with no policies, as a second layer. Autogenerate doesn't handle RLS, so every migration that creates a table must add `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`. `tests/test_db.py` fails if a table lacks it.
-- **New migration:** change `src/db/models.py`, then autogenerate against the test database, not Supabase: `DATABASE_URL=$TEST_DATABASE_URL alembic revision --autogenerate -m "..."`. Review the file, add RLS for new tables, wrap lines over 100 characters, run the tests, then `alembic upgrade head` against Supabase.
+- **New migration:** change `src/db/models.py`, then autogenerate against the test database, not Supabase: `DATABASE_URL=$TEST_DATABASE_URL alembic revision --autogenerate -m "..."`. Review the file, add RLS for new tables, wrap lines over 100 characters, run the tests, then open the PR. `migrate.yml` applies it to staging for the PR's preview and to production on merge; don't run `alembic upgrade head` against Supabase yourself.
 - SQLAlchemy calls are blocking: use plain `def` endpoints (FastAPI's thread pool), or `asyncio.to_thread` from async code, as `/healthcheck` does.
 - `/healthcheck` returns `{"status": "ok", "database": "ok" | "unavailable", "last_sync": <ISO timestamp> | null, "last_points_sync": <ISO timestamp> | null}`, always with 200, so a database outage doesn't make a host restart the app. `last_sync` is the last successful bootstrap sync (hourly); `last_points_sync` is the last gameweek whose points were stored, so it moves about weekly, a day or two after a gameweek's last match. If it's more than about 10 days old during the season, the points sync is failing and new transfers get null `net_points`.
 
