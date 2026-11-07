@@ -30,7 +30,8 @@ def manager_not_found() -> HTTPException:
 
 @managers_router.get("/managers/{manager_id}")
 def get_manager(manager_id: ManagerId, response: Response) -> ManagerResponse:
-    """Get a manager's FPL team: team and manager name, points, rank and team value.
+    """Get a manager's FPL team: team name, points, rank and team value. Never the
+    manager's real name.
 
     The id is the number in the URL of the team's Points page on the FPL site.
     Returns 404 if FPL has no such manager, and 503 if FPL can't be reached.

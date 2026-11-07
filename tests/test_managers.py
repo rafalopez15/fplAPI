@@ -56,7 +56,7 @@ def fpl(monkeypatch):
 def test_get_manager_service():
     result = managers.get_manager(1)
     assert isinstance(result, ManagerResponse)
-    assert (result.name, result.player_first_name) == ("Solio Moose", "Chris")
+    assert result.name == "Solio Moose"
 
 
 @pytest.mark.usefixtures("fpl")
@@ -119,6 +119,16 @@ def test_get_manager(api):
     assert body["name"] == "Solio Moose"
     assert body["last_deadline_value"] == 1022
     assert "leagues" not in body
+
+
+@pytest.mark.usefixtures("fpl")
+@pytest.mark.parametrize("path", FETCHES)
+def test_real_names_never_leave_the_api(api, path):
+    # FPL sends the manager's name (make_fpl_manager: Chris Musson). No manager
+    # route may pass it on, under any key.
+    text = api.get(path).text
+    assert "Chris" not in text and "Musson" not in text
+    assert "player_first_name" not in text and "player_last_name" not in text
 
 
 def test_manager_optional_fields_can_be_missing(api, fpl):
