@@ -261,7 +261,7 @@ Set `TEST_DATABASE_URL` in `.env` (the value from `.env.example` matches the con
 ```bash
 python -m pytest                 # tests with a coverage report; fails under 95%
 pylint $(git ls-files '*.py')    # lint with the settings in .pylintrc
-black .                          # format the code (settings in pyproject.toml)
+black .                          # format the code (Black's defaults: 88 characters)
 black --check .                  # what CI checks: fails if any file would change
 ```
 The one-time Black reformat is listed in `.git-blame-ignore-revs`, so `git blame` skips it and shows who actually wrote each line. GitHub's blame view does this automatically; locally, run this once in your clone:

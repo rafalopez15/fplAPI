@@ -13,5 +13,7 @@ disable=
 ignored-modules=alembic.context,alembic.op
 
 [FORMAT]
-# The same limit as Black (pyproject.toml), so the two tools agree.
+# The same limit as Black, which runs with its defaults (88 characters), so the two
+# tools agree. There's deliberately no pyproject.toml: Vercel would install
+# dependencies from it instead of requirements.txt.
 max-line-length=88
