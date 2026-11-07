@@ -264,4 +264,8 @@ pylint $(git ls-files '*.py')    # lint with the settings in .pylintrc
 black .                          # format the code (settings in pyproject.toml)
 black --check .                  # what CI checks: fails if any file would change
 ```
+The one-time Black reformat is listed in `.git-blame-ignore-revs`, so `git blame` skips it and shows who actually wrote each line. GitHub's blame view does this automatically; locally, run this once in your clone:
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
 Apart from the test database, the tests need no network access, and they use dummy values for the other settings. CI runs all three on every pull request and on pushes to `main`, with its own Postgres container, and posts the results as a comment on the PR. The comment is updated on each push.
