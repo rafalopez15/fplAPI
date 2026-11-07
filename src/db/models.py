@@ -1,5 +1,5 @@
 """SQLAlchemy tables: the FPL data, synced from FPL by the jobs and read by the API,
-and the accounts (Profile, UserTeam, Note), written by the API.
+and the accounts (Profile, UserTeam, Note, DeletedAccount), written by the API.
 
 FPL tables' column names match FPL's field names, so rows map 1:1 onto the Pydantic
 response models. Ids are FPL's own, never generated here. FPL tables are only
@@ -323,3 +323,17 @@ class Note(Base):
     updated_at: Mapped[datetime]
     deleted_at: Mapped[Optional[datetime]]
     synced_at: Mapped[datetime]
+
+
+class DeletedAccount(Base):
+    """A deleted account's id, so its writes are refused from then on.
+
+    A deleted user's access token still verifies until it expires, up to an hour,
+    and a client could still be flushing queued writes. ensure_profile() refuses ids
+    listed here, so nothing is stored for the account again. Only the id is kept, and
+    Supabase never reuses ids, so rows are never removed.
+    """
+    __tablename__ = "deleted_accounts"
+
+    user_id: Mapped[UUID] = mapped_column(primary_key=True)
+    deleted_at: Mapped[datetime] = mapped_column(server_default=func.now())

@@ -9,6 +9,7 @@ from src.services import profiles, user_teams
 from src.util.auth import CurrentUser
 from src.util.database import get_session
 from src.util.fpl_client import FplNotFoundError
+from src.util.supabase_admin import SupabaseAdminError
 
 # The signed-in user's own data. Every route needs a Supabase access token
 # (Authorization: Bearer): 401 without a valid one, 503 if sign-in is unavailable.
@@ -22,6 +23,21 @@ SessionDep = Annotated[Session, Depends(get_session)]
 def get_me(user_id: CurrentUser, session: SessionDep) -> ProfileResponse:
     """Get the signed-in user's account, creating it on the first call."""
     return profiles.get_profile(session, user_id)
+
+
+@me_router.delete("/me", status_code=204)
+def delete_me(user_id: CurrentUser, session: SessionDep) -> None:
+    """Delete the account: its notes, its teams and its sign-in. FPL teams aren't touched.
+
+    All or nothing: 503 if it can't be done right now, with nothing changed, so it's
+    safe to retry. After a 204, the account's token is refused for writes.
+    """
+    try:
+        profiles.delete_account(session, user_id)
+    except SupabaseAdminError as exc:
+        raise HTTPException(
+            status_code=503, detail="Couldn't delete your account right now"
+        ) from exc
 
 
 @me_router.get("/me/teams")
