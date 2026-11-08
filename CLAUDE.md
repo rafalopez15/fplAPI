@@ -183,7 +183,7 @@ Use these status codes consistently:
 | A write with the token of an account that's been deleted | **401** `"Not signed in"`, with `WWW-Authenticate: Bearer` |
 | `DELETE /api/me` when Supabase fails or `SUPABASE_SECRET_KEY` isn't set (nothing is deleted) | **503** `"Couldn't delete your account right now"` |
 | Adding a team to an account that already has 1,000 | **409** `"Team limit reached"` |
-| Adding a 61st new team within an hour | **429** `"Too many follows, try again later"`, with `Retry-After` (seconds) |
+| Adding a 61st new team within an hour | **429** `"Too many teams added, try again later"`, with `Retry-After` (seconds) |
 | A note that doesn't exist or is another user's (never 403, so ids reveal nothing) | **404** `"Note not found"` |
 | A `?since=` cursor the API didn't issue | **422** `"Invalid cursor"` |
 

@@ -65,7 +65,7 @@ def put_my_team(
     except user_teams.TooManyAddsError as exc:
         raise HTTPException(
             status_code=429,
-            detail="Too many follows, try again later",
+            detail="Too many teams added, try again later",
             headers={"Retry-After": str(exc.retry_after)},
         ) from exc
 

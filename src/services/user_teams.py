@@ -14,8 +14,7 @@ from src.util import fpl_client
 
 # Not a product limit: following costs nothing, since the timeline fetches each
 # distinct team once per gameweek however many accounts follow it (design doc:
-# "Design: timeline, following and leagues"). Both limits only stop scripts. Two
-# simultaneous adds can both pass a check and go one over; that's harmless.
+# "Design: timeline, following and leagues"). Both limits only stop scripts.
 TEAM_LIMIT = 1000
 ADD_LIMIT = 60  # new teams per account per ADD_WINDOW
 ADD_WINDOW = timedelta(hours=1)
@@ -63,6 +62,11 @@ def save_team(
         session.commit()
         fpl_client.fetch_manager(manager_id)
         ensure_profile(session, user_id)
+        # Again, now that ensure_profile holds the account's lock until commit:
+        # adds sent in parallel all passed the first check during the FPL call.
+        # Skipped if a double tap added this team meanwhile; that's a switch.
+        if session.get(UserTeam, (user_id, manager_id)) is None:
+            check_limits(session, user_id)
     # Upsert, so a double tap can't hit a duplicate key.
     row = session.scalars(
         insert(UserTeam)
@@ -80,6 +84,7 @@ def save_team(
 
 
 def check_limits(session: Session, user_id: UUID) -> None:
+    """Raise TeamLimitError or TooManyAddsError if the account can't add a team."""
     count = session.scalar(
         select(func.count()).select_from(UserTeam).where(UserTeam.user_id == user_id)
     )
