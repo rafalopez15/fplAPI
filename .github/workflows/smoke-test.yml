@@ -1,0 +1,56 @@
+name: Smoke test
+
+# Requests every Vercel deployment once it's built, previews and production, and
+# reports the result on the deployed commit as a "Smoke test" status, so a broken
+# preview shows on its PR (FPL-86: a build that passed but crashed on every request).
+on:
+  # Sent by Vercel's GitHub integration. GitHub only runs it from main's copy of
+  # this file.
+  repository_dispatch:
+    types: [vercel.deployment.success]
+  # By hand from the Actions tab, against any URL. Nothing is reported on a commit.
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Deployment URL
+        required: true
+
+permissions:
+  statuses: write
+
+jobs:
+  smoke-test:
+    name: Smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      URL: ${{ github.event.client_payload.url || inputs.url }}
+      SHA: ${{ github.event.client_payload.git.sha }}
+      ENVIRONMENT: ${{ github.event.client_payload.environment || 'manual' }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Mark the commit pending
+      if: env.SHA != ''
+      run: |
+        gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state=pending \
+          -f context="Smoke test" -f target_url="$RUN_URL" \
+          -f description="Checking the $ENVIRONMENT deployment" > /dev/null
+    - name: Request the deployment
+      run: |
+        echo "Smoke testing the $ENVIRONMENT deployment at $URL"
+        .github/scripts/smoke_test.sh "$URL"
+    - name: Report the result on the commit
+      if: always() && env.SHA != ''
+      env:
+        OUTCOME: ${{ job.status }}
+      run: |
+        if [ "$OUTCOME" = success ]; then
+          state=success description="The $ENVIRONMENT deployment answers"
+        else
+          state=failure description="The $ENVIRONMENT deployment is broken"
+        fi
+        gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$state" \
+          -f context="Smoke test" -f target_url="$RUN_URL" \
+          -f description="$description" > /dev/null
