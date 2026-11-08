@@ -35,8 +35,7 @@ def api(client, signed_in):
 def add_rows(session, user_id, *manager_ids, relation="following"):
     """Teams added straight to the database, a minute apart, oldest first.
 
-    They're dated 1 November 2026, so they're too old to count toward the hourly
-    limit; add_recent() makes ones that do.
+    Dated 1 November 2026, too old for the hourly limit; see add_recent().
     """
     session.add(Profile(id=user_id))
     session.flush()
@@ -223,7 +222,7 @@ def test_one_under_the_hourly_limit_can_still_add(api, seeded_session):
 def test_adds_sent_in_parallel_cant_get_past_the_limit(
     api, fetch_manager, seeded_session
 ):
-    # While this add waits on FPL, 60 others land: the second check refuses it.
+    # 60 other adds land while this one waits on FPL.
     fetch_manager.side_effect = lambda _: add_recent(
         seeded_session, UUID(USER_ID), ADD_LIMIT
     )
@@ -233,7 +232,7 @@ def test_adds_sent_in_parallel_cant_get_past_the_limit(
 
 
 def test_a_double_tap_at_the_limit_isnt_refused(api, fetch_manager, seeded_session):
-    # The other tap added this team during the FPL call, so this one is a switch.
+    # The other tap adds this team during the FPL call.
     add_recent(seeded_session, UUID(USER_ID), ADD_LIMIT - 1)
 
     def other_tap(manager_id):

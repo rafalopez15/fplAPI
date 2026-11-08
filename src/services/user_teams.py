@@ -12,9 +12,8 @@ from src.models.user_team import Relation, UserTeamResponse
 from src.services.profiles import ensure_profile
 from src.util import fpl_client
 
-# Not a product limit: following costs nothing, since the timeline fetches each
-# distinct team once per gameweek however many accounts follow it (design doc:
-# "Design: timeline, following and leagues"). Both limits only stop scripts.
+# Both limits only stop scripts: a follow costs no FPL calls (design doc
+# "Design: timeline, following and leagues").
 TEAM_LIMIT = 1000
 ADD_LIMIT = 60  # new teams per account per ADD_WINDOW
 ADD_WINDOW = timedelta(hours=1)
@@ -62,9 +61,8 @@ def save_team(
         session.commit()
         fpl_client.fetch_manager(manager_id)
         ensure_profile(session, user_id)
-        # Again, now that ensure_profile holds the account's lock until commit:
-        # adds sent in parallel all passed the first check during the FPL call.
-        # Skipped if a double tap added this team meanwhile; that's a switch.
+        # Check again under the account lock ensure_profile took: parallel adds
+        # all passed the first check. A double tap's team is already here.
         if session.get(UserTeam, (user_id, manager_id)) is None:
             check_limits(session, user_id)
     # Upsert, so a double tap can't hit a duplicate key.
@@ -90,8 +88,7 @@ def check_limits(session: Session, user_id: UUID) -> None:
     )
     if count >= TEAM_LIMIT:
         raise TeamLimitError
-    # Counted from created_at, so a team removed since doesn't count. Removing and
-    # re-adding can get past it, which costs FPL no more than the public routes do.
+    # Removed teams don't count, so remove-and-re-add gets past this (FPL-44).
     recent, oldest, now = session.execute(
         select(func.count(), func.min(UserTeam.created_at), func.now()).where(
             UserTeam.user_id == user_id,
