@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from src.db.models import Profile, UserTeam
+from src.db.models import Profile, TrackedTeam, UserTeam
 from src.services.user_teams import ADD_LIMIT, TEAM_LIMIT
 from src.util import fpl_client
 from src.util.fpl_client import FplNotFoundError, FplUnavailableError
@@ -77,6 +77,62 @@ def test_users_only_see_their_own_teams(client, signed_in, seeded_session):
         t["manager_id"]
         for t in client.get("/api/me/teams", headers=signed_in(OTHER_USER)).json()
     ] == [5]
+
+
+# --- team names ----------------------------------------------------------------
+
+
+def names(api):
+    return {t["manager_id"]: t["name"] for t in api.get("/api/me/teams").json()}
+
+
+def test_adding_a_team_saves_its_name(api, fetch_manager):
+    fetch_manager.return_value = make_fpl_manager(id=7, name="Loaded Garnachos")
+    response = api.put("/api/me/teams/7", json={"relation": "following"})
+    assert response.json()["name"] == "Loaded Garnachos"
+    assert names(api) == {7: "Loaded Garnachos"}
+
+
+def test_a_name_is_stored_once_for_every_account(
+    client, signed_in, fetch_manager, seeded_session
+):
+    for user in (USER_ID, OTHER_USER):
+        client.put(
+            "/api/me/teams/7", json={"relation": "following"}, headers=signed_in(user)
+        )
+    count = seeded_session.scalar(select(func.count()).select_from(TrackedTeam))
+    assert count == 1
+    assert fetch_manager.call_count == 2  # each add still checks FPL
+
+
+def test_adding_a_team_again_refreshes_its_name(api, fetch_manager):
+    api.put("/api/me/teams/7", json={"relation": "following"})
+    api.delete("/api/me/teams/7")
+    fetch_manager.return_value = make_fpl_manager(id=7, name="Renamed FC")
+    api.put("/api/me/teams/7", json={"relation": "following"})
+    assert names(api) == {7: "Renamed FC"}
+
+
+def test_switching_keeps_the_name_without_calling_fpl(api, fetch_manager):
+    api.put("/api/me/teams/1", json={"relation": "following"})
+    fetch_manager.reset_mock()
+    response = api.put("/api/me/teams/1", json={"relation": "mine"})
+    assert response.json()["name"] == "Solio Moose"
+    fetch_manager.assert_not_called()
+
+
+def test_a_team_without_a_stored_name_is_null(api, seeded_session):
+    # Added before FPL-101; the hourly sync fills it in.
+    add_rows(seeded_session, UUID(USER_ID), 5)
+    assert names(api) == {5: None}
+
+
+@pytest.mark.usefixtures("fetch_manager")
+def test_the_name_is_the_teams_never_the_managers(api):
+    api.put("/api/me/teams/1", json={"relation": "mine"})
+    body = api.get("/api/me/teams").text
+    assert "Solio Moose" in body
+    assert "Chris" not in body and "Musson" not in body
 
 
 # --- adding and switching ------------------------------------------------------
@@ -240,6 +296,7 @@ def test_a_double_tap_at_the_limit_isnt_refused(api, fetch_manager, seeded_sessi
             UserTeam(user_id=UUID(USER_ID), manager_id=manager_id, relation="mine")
         )
         seeded_session.flush()
+        return make_fpl_manager(id=manager_id)
 
     fetch_manager.side_effect = other_tap
     response = api.put("/api/me/teams/9999", json={"relation": "following"})

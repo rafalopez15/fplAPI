@@ -2,12 +2,12 @@
 
 import math
 from datetime import timedelta
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
-from src.db.models import UserTeam
+from src.db.models import TrackedTeam, UserTeam
 from src.models.user_team import Relation, UserTeamResponse
 from src.services.profiles import ensure_profile
 from src.util import fpl_client
@@ -35,13 +35,35 @@ class TooManyAddsError(Exception):
 
 
 def list_teams(session: Session, user_id: UUID) -> List[UserTeamResponse]:
-    """The user's teams, newest first."""
-    rows = session.scalars(
-        select(UserTeam)
+    """The user's teams, newest first, with their names."""
+    rows = session.execute(
+        select(UserTeam, TrackedTeam.name)
+        .outerjoin(TrackedTeam, TrackedTeam.manager_id == UserTeam.manager_id)
         .where(UserTeam.user_id == user_id)
         .order_by(UserTeam.created_at.desc(), UserTeam.manager_id)
     )
-    return [UserTeamResponse.model_validate(row) for row in rows]
+    return [to_response(row, name) for row, name in rows]
+
+
+def to_response(row: UserTeam, name: Optional[str]) -> UserTeamResponse:
+    return UserTeamResponse(
+        manager_id=row.manager_id,
+        relation=row.relation,
+        created_at=row.created_at,
+        name=name,
+    )
+
+
+def remember_team(session: Session, manager_id: int, name: Optional[str]) -> None:
+    """Store or refresh a team's name in teams_tracked. Doesn't commit."""
+    session.execute(
+        insert(TrackedTeam)
+        .values(manager_id=manager_id, name=name)
+        .on_conflict_do_update(
+            index_elements=[TrackedTeam.manager_id],
+            set_={"name": name, "updated_at": func.now()},
+        )
+    )
 
 
 def save_team(
@@ -54,17 +76,22 @@ def save_team(
     TeamLimitError past TEAM_LIMIT, and TooManyAddsError past ADD_LIMIT within
     ADD_WINDOW; switching counts toward neither.
     """
-    if session.get(UserTeam, (user_id, manager_id)) is None:
+    name = None
+    adding = session.get(UserTeam, (user_id, manager_id)) is None
+    if adding:
         check_limits(session, user_id)
         # Don't hold a pooler connection while FPL answers (up to 5s). Nothing's
         # written yet, so this only ends the read transaction.
         session.commit()
-        fpl_client.fetch_manager(manager_id)
+        manager = fpl_client.fetch_manager(manager_id)
         ensure_profile(session, user_id)
         # Check again under the account lock ensure_profile took: parallel adds
         # all passed the first check. A double tap's team is already here.
         if session.get(UserTeam, (user_id, manager_id)) is None:
             check_limits(session, user_id)
+        # The name comes free with the check; adding a team again refreshes it.
+        name = manager.get("name")
+        remember_team(session, manager_id, name)
     # Upsert, so a double tap can't hit a duplicate key.
     row = session.scalars(
         insert(UserTeam)
@@ -76,7 +103,11 @@ def save_team(
         .returning(UserTeam),
         execution_options={"populate_existing": True},
     ).one()
-    result = UserTeamResponse.model_validate(row)
+    if not adding:
+        name = session.scalar(
+            select(TrackedTeam.name).where(TrackedTeam.manager_id == manager_id)
+        )
+    result = to_response(row, name)
     session.commit()
     return result
 

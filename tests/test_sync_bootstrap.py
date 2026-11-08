@@ -2,6 +2,7 @@
 # pylint: disable=redefined-outer-name
 import logging
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 import requests
@@ -14,11 +15,14 @@ from src.db.models import (
     ElementEventPoints,
     Event,
     Fixture,
+    Profile,
     SyncRun,
     Team,
+    TrackedTeam,
+    UserTeam,
 )
 from src.jobs import sync_bootstrap as job
-from src.util.fpl_client import FplUnavailableError
+from src.util.fpl_client import FplNotFoundError, FplUnavailableError
 from tests.conftest import (
     ELEMENT_TYPES,
     future_event,
@@ -433,25 +437,129 @@ def test_bad_live_data_fails_the_gameweek_and_writes_nothing(engine, response):
     assert points_runs(engine) == [(8, "failed")]
 
 
+# --- team names --------------------------------------------------------------
+
+
+def add_account_teams(engine, *manager_ids):
+    """Two accounts, both with every team in manager_ids, as the API would save them."""
+    users = [uuid4(), uuid4()]
+    with Session(engine) as session, session.begin():
+        session.add_all(Profile(id=user) for user in users)
+        session.flush()
+        session.add_all(
+            UserTeam(user_id=user, manager_id=m, relation="following")
+            for user in users
+            for m in manager_ids
+        )
+
+
+def tracked(engine):
+    with Session(engine) as session:
+        rows = session.execute(select(TrackedTeam.manager_id, TrackedTeam.name))
+        return dict(rows.all())
+
+
+class FakeManagers:
+    """fetch_manager: a name per id, raising whatever errors[id] holds."""
+
+    def __init__(self, errors=None):
+        self.errors = errors or {}
+        self.calls = []
+
+    def __call__(self, manager_id):
+        self.calls.append(manager_id)
+        if manager_id in self.errors:
+            raise self.errors[manager_id]
+        return {"id": manager_id, "name": f"Team {manager_id}"}
+
+
+def test_team_names_are_fetched_once_per_team(engine):
+    add_account_teams(engine, 3, 1, 2)
+    fetch = FakeManagers()
+    assert job.sync_team_names(engine, fetch=fetch) is True
+    assert fetch.calls == [1, 2, 3]  # each once, though two accounts have them
+    assert tracked(engine) == {1: "Team 1", 2: "Team 2", 3: "Team 3"}
+
+
+def test_known_teams_are_skipped(engine):
+    add_account_teams(engine, 1, 2)
+    job.sync_team_names(engine, fetch=FakeManagers())
+    fetch = FakeManagers()
+    assert job.sync_team_names(engine, fetch=fetch) is True
+    assert not fetch.calls
+
+
+def test_a_team_fpl_doesnt_have_is_stored_without_a_name(engine):
+    add_account_teams(engine, 1, 2)
+    fetch = FakeManagers({1: FplNotFoundError("gone")})
+    assert job.sync_team_names(engine, fetch=fetch) is True
+    assert tracked(engine) == {1: None, 2: "Team 2"}
+    # Not asked for again.
+    again = FakeManagers()
+    job.sync_team_names(engine, fetch=again)
+    assert not again.calls
+
+
+def test_fpl_failing_stops_until_the_next_run(engine, caplog):
+    add_account_teams(engine, 1, 2, 3)
+    fetch = FakeManagers({2: FplUnavailableError("down")})
+    with caplog.at_level(logging.ERROR):
+        assert job.sync_team_names(engine, fetch=fetch) is False
+    assert fetch.calls == [1, 2]
+    assert tracked(engine) == {1: "Team 1"}  # what it got before stopping is kept
+    assert "Team name sync stopped at team 2: down" in caplog.text
+    job.sync_team_names(engine, fetch=FakeManagers())
+    assert tracked(engine) == {1: "Team 1", 2: "Team 2", 3: "Team 3"}
+
+
+def test_team_names_are_fetched_in_batches(engine, monkeypatch):
+    monkeypatch.setattr(job, "NAME_BATCH", 2)
+    add_account_teams(engine, 1, 2, 3)
+    fetch = FakeManagers()
+    job.sync_team_names(engine, fetch=fetch)
+    assert fetch.calls == [1, 2]
+    job.sync_team_names(engine, fetch=fetch)
+    assert fetch.calls == [1, 2, 3]
+
+
+def test_no_teams_on_accounts_makes_no_calls(engine):
+    fetch = FakeManagers()
+    assert job.sync_team_names(engine, fetch=fetch) is True
+    assert not fetch.calls
+
+
 # --- main ------------------------------------------------------------------
 
 
+@pytest.fixture
+def steps(monkeypatch):
+    """main()'s three steps, each succeeding unless a test changes it."""
+    ran = []
+    for name in ("sync_bootstrap", "sync_event_points", "sync_team_names"):
+        monkeypatch.setattr(job, name, lambda name=name: ran.append(name) or True)
+    return ran
+
+
+@pytest.mark.usefixtures("steps")
 @pytest.mark.parametrize(
-    "bootstrap_ok, points_ok, exit_code",
-    [(True, True, 0), (False, True, 1), (True, False, 1)],
+    "failing, exit_code",
+    [
+        (None, 0),
+        ("sync_bootstrap", 1),
+        ("sync_event_points", 1),
+        ("sync_team_names", 1),
+    ],
 )
-def test_main_exit_code(monkeypatch, bootstrap_ok, points_ok, exit_code):
-    monkeypatch.setattr(job, "sync_bootstrap", lambda: bootstrap_ok)
-    monkeypatch.setattr(job, "sync_event_points", lambda: points_ok)
+def test_main_exit_code(monkeypatch, failing, exit_code):
+    if failing:
+        monkeypatch.setattr(job, failing, lambda: False)
     assert job.main() == exit_code
 
 
-def test_main_syncs_points_even_when_bootstrap_fails(monkeypatch):
-    points = []
+def test_main_runs_every_step_even_when_bootstrap_fails(monkeypatch, steps):
     monkeypatch.setattr(job, "sync_bootstrap", lambda: False)
-    monkeypatch.setattr(job, "sync_event_points", lambda: points.append(True) or True)
     job.main()
-    assert points == [True]
+    assert steps == ["sync_event_points", "sync_team_names"]
 
 
 def test_main_fails_when_the_run_cant_be_recorded(monkeypatch, caplog):
