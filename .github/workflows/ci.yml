@@ -145,6 +145,8 @@ jobs:
     - name: Summarize coverage
       if: always()
       run: |
+        echo "DEBUG changed-files:"; cat -A changed-files.txt || true
+        echo "DEBUG report names:"; grep -o 'filename="[^"]*canary[^"]*"' coverage.xml || true
         python .github/scripts/summarize_coverage.py coverage.xml \
           baseline/coverage.xml changed-files.txt coverage-summary.md
     - name: Upload the summaries for the PR comment
