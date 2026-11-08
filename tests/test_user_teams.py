@@ -7,10 +7,10 @@ from unittest.mock import Mock
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from src.db.models import Profile, UserTeam
-from src.services.user_teams import TEAM_LIMIT
+from src.services.user_teams import ADD_LIMIT, TEAM_LIMIT
 from src.util import fpl_client
 from src.util.fpl_client import FplNotFoundError, FplUnavailableError
 from tests.conftest import USER_ID, make_fpl_manager
@@ -33,7 +33,10 @@ def api(client, signed_in):
 
 
 def add_rows(session, user_id, *manager_ids, relation="following"):
-    """Teams added straight to the database, a minute apart, oldest first."""
+    """Teams added straight to the database, a minute apart, oldest first.
+
+    Dated 1 November 2026, too old for the hourly limit; see add_recent().
+    """
     session.add(Profile(id=user_id))
     session.flush()
     start = datetime(2026, 11, 1, tzinfo=timezone.utc)
@@ -170,6 +173,89 @@ def test_a_team_over_the_limit_is_409(api, fetch_manager, seeded_session):
     fetch_manager.assert_not_called()
     # Switching a team already on the account still works at the limit.
     assert api.put("/api/me/teams/1", json={"relation": "mine"}).status_code == 200
+
+
+def add_recent(session, user_id, count, minutes_ago=30):
+    """count teams added minutes_ago, by the database's clock."""
+    session.add(Profile(id=user_id))
+    session.flush()
+    added = session.scalar(select(func.now())) - timedelta(minutes=minutes_ago)
+    session.add_all(
+        UserTeam(user_id=user_id, manager_id=i, relation="following", created_at=added)
+        for i in range(1, count + 1)
+    )
+    session.flush()
+
+
+def test_too_many_new_teams_in_an_hour_is_429(api, fetch_manager, seeded_session):
+    add_recent(seeded_session, UUID(USER_ID), ADD_LIMIT, minutes_ago=30)
+
+    response = api.put("/api/me/teams/9999", json={"relation": "following"})
+    assert response.status_code == 429
+    assert response.json() == {"detail": "Too many teams added, try again later"}
+    # The oldest add leaves the hour in 30 minutes.
+    assert 30 * 60 - 5 <= int(response.headers["retry-after"]) <= 30 * 60
+    assert response.headers["cache-control"] == "private, no-store"
+    fetch_manager.assert_not_called()
+
+
+@pytest.mark.usefixtures("fetch_manager")
+def test_switching_a_relation_doesnt_count_toward_the_hourly_limit(api, seeded_session):
+    add_recent(seeded_session, UUID(USER_ID), ADD_LIMIT)
+    assert api.put("/api/me/teams/1", json={"relation": "mine"}).status_code == 200
+
+
+@pytest.mark.usefixtures("fetch_manager")
+def test_adds_older_than_an_hour_dont_count(api, seeded_session):
+    add_recent(seeded_session, UUID(USER_ID), ADD_LIMIT, minutes_ago=61)
+    response = api.put("/api/me/teams/9999", json={"relation": "following"})
+    assert response.status_code == 200
+
+
+@pytest.mark.usefixtures("fetch_manager")
+def test_one_under_the_hourly_limit_can_still_add(api, seeded_session):
+    add_recent(seeded_session, UUID(USER_ID), ADD_LIMIT - 1)
+    response = api.put("/api/me/teams/9999", json={"relation": "following"})
+    assert response.status_code == 200
+
+
+def test_adds_sent_in_parallel_cant_get_past_the_limit(
+    api, fetch_manager, seeded_session
+):
+    # 60 other adds land while this one waits on FPL.
+    fetch_manager.side_effect = lambda _: add_recent(
+        seeded_session, UUID(USER_ID), ADD_LIMIT
+    )
+    response = api.put("/api/me/teams/9999", json={"relation": "following"})
+    assert response.status_code == 429
+    assert seeded_session.get(UserTeam, (UUID(USER_ID), 9999)) is None
+
+
+def test_a_double_tap_at_the_limit_isnt_refused(api, fetch_manager, seeded_session):
+    # The other tap adds this team during the FPL call.
+    add_recent(seeded_session, UUID(USER_ID), ADD_LIMIT - 1)
+
+    def other_tap(manager_id):
+        seeded_session.add(
+            UserTeam(user_id=UUID(USER_ID), manager_id=manager_id, relation="mine")
+        )
+        seeded_session.flush()
+
+    fetch_manager.side_effect = other_tap
+    response = api.put("/api/me/teams/9999", json={"relation": "following"})
+    assert response.status_code == 200
+    assert response.json()["relation"] == "following"
+
+
+def test_the_hourly_limit_is_per_account(
+    client, signed_in, fetch_manager, seeded_session
+):
+    add_recent(seeded_session, OTHER_USER, ADD_LIMIT)
+    response = client.put(
+        "/api/me/teams/9999", json={"relation": "following"}, headers=signed_in()
+    )
+    assert response.status_code == 200
+    fetch_manager.assert_called_once_with(9999)
 
 
 # --- removing ------------------------------------------------------------------
