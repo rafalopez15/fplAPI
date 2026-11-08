@@ -76,7 +76,9 @@ def save_team(
     TeamLimitError past TEAM_LIMIT, and TooManyAddsError past ADD_LIMIT within
     ADD_WINDOW; switching counts toward neither.
     """
-    if session.get(UserTeam, (user_id, manager_id)) is None:
+    name = None
+    adding = session.get(UserTeam, (user_id, manager_id)) is None
+    if adding:
         check_limits(session, user_id)
         # Don't hold a pooler connection while FPL answers (up to 5s). Nothing's
         # written yet, so this only ends the read transaction.
@@ -88,7 +90,8 @@ def save_team(
         if session.get(UserTeam, (user_id, manager_id)) is None:
             check_limits(session, user_id)
         # The name comes free with the check; adding a team again refreshes it.
-        remember_team(session, manager_id, manager.get("name"))
+        name = manager.get("name")
+        remember_team(session, manager_id, name)
     # Upsert, so a double tap can't hit a duplicate key.
     row = session.scalars(
         insert(UserTeam)
@@ -100,12 +103,11 @@ def save_team(
         .returning(UserTeam),
         execution_options={"populate_existing": True},
     ).one()
-    result = to_response(
-        row,
-        session.scalar(
+    if not adding:
+        name = session.scalar(
             select(TrackedTeam.name).where(TrackedTeam.manager_id == manager_id)
-        ),
-    )
+        )
+    result = to_response(row, name)
     session.commit()
     return result
 
