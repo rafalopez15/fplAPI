@@ -53,7 +53,8 @@ def put_my_team(
 ) -> UserTeamResponse:
     """Add a team as "mine" or "following", or switch it.
 
-    Adding checks FPL: 404 for an unknown team, 503 if FPL is down. 409 at 10 teams.
+    Adding checks FPL: 404 for an unknown team, 503 if FPL is down. 409 at 1,000
+    teams, and 429 after 60 new teams in an hour.
     """
     try:
         return user_teams.save_team(session, user_id, manager_id, body.relation)
@@ -61,6 +62,12 @@ def put_my_team(
         raise manager_not_found() from exc
     except user_teams.TeamLimitError as exc:
         raise HTTPException(status_code=409, detail="Team limit reached") from exc
+    except user_teams.TooManyAddsError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many follows, try again later",
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
 
 
 @me_router.delete("/me/teams/{manager_id}", status_code=204)
