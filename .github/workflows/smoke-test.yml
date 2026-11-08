@@ -1,0 +1,82 @@
+name: Smoke test
+
+# Requests every Vercel deployment once it's built, previews and production, and
+# reports the result on the deployed commit as a "Smoke test" status, so a broken
+# preview shows on its PR (FPL-86: a build that passed but crashed on every request).
+on:
+  # Sent by Vercel's GitHub integration. GitHub only runs it from main's copy of
+  # this file.
+  repository_dispatch:
+    types: [vercel.deployment.success]
+  # By hand from the Actions tab, against any URL. Nothing is reported on a commit.
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Deployment URL
+        required: true
+
+permissions:
+  contents: read
+  statuses: write
+  issues: write  # an issue when production fails
+
+jobs:
+  smoke-test:
+    # Not "Smoke test": GitHub files this run under main's latest commit, whatever
+    # was deployed, so the commit status below is the result that counts.
+    name: Request the deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      URL: ${{ github.event.client_payload.url || inputs.url }}
+      SHA: ${{ github.event.client_payload.git.sha }}
+      ENVIRONMENT: ${{ github.event.client_payload.environment || 'manual' }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Mark the commit pending
+      if: env.SHA != ''
+      run: |
+        gh api "repos/$GH_REPO/statuses/$SHA" -f state=pending \
+          -f context="Smoke test" -f target_url="$RUN_URL" \
+          -f description="Checking the $ENVIRONMENT deployment" > /dev/null
+    - name: Request the deployment
+      id: smoke
+      # A broken preview fails only its commit status, not this run, so it doesn't
+      # mark main's latest commit red. Production or a manual run failing fails the
+      # run. (Expression comparisons ignore case.)
+      continue-on-error: ${{ env.ENVIRONMENT == 'preview' }}
+      run: |
+        echo "Smoke testing the $ENVIRONMENT deployment at $URL"
+        .github/scripts/smoke_test.sh "$URL"
+    - name: Report the result on the commit
+      if: always() && env.SHA != ''
+      env:
+        OUTCOME: ${{ steps.smoke.outcome }}
+      run: |
+        if [ "$OUTCOME" = success ]; then
+          state=success description="The $ENVIRONMENT deployment answers"
+        else
+          state=failure description="The $ENVIRONMENT deployment is broken"
+        fi
+        gh api "repos/$GH_REPO/statuses/$SHA" -f state="$state" \
+          -f context="Smoke test" -f target_url="$RUN_URL" \
+          -f description="$description" > /dev/null
+    - name: Open an issue when production fails
+      # GitHub emails a failed run to whoever started it, here Vercel's app, so
+      # without this nobody hears about it. One open issue at a time; later
+      # failures comment on it.
+      if: failure() && env.ENVIRONMENT == 'production'
+      env:
+        TITLE: Production smoke test failed
+      run: |
+        body="The production deployment of \`${SHA:0:7}\` at $URL failed its smoke test: $RUN_URL"
+        issue=$(gh issue list --state open --search "\"$TITLE\" in:title" \
+          --json number --jq '.[0].number')
+        if [ -n "$issue" ]; then
+          gh issue comment "$issue" --body "$body"
+        else
+          gh issue create --title "$TITLE" --body "$body"
+        fi

@@ -239,7 +239,11 @@ Get it from **Connect → Transaction pooler** in Supabase and change it as in t
 
 Vercel uses the transaction pooler, not the session pooler in `.env`. The session pooler gives each open connection one of only 15 slots, and every warm Vercel instance keeps a few connections open, so they can fill every slot and lock the hourly sync out. The transaction pooler shares connections between requests. The GitHub workflows and local runs stay on the session pooler.
 
-`DATABASE_URL` is the only required setting; the others have defaults. After a deploy, `https://<project>.vercel.app/healthcheck` should return `"database": "ok"` with a recent `last_sync`.
+`DATABASE_URL` is the only required setting; the others have defaults. After a deploy, `https://<project>.vercel.app/healthcheck` should return `"database": "ok"` with a recent `last_sync`. The **Smoke test** workflow checks this automatically after every deployment and reports it on the commit. It needs **Settings → Git → `repository_dispatch` events** turned on in the Vercel project, or Vercel never starts it. To run the same check yourself:
+
+```bash
+.github/scripts/smoke_test.sh https://fpl-api-six.vercel.app
+```
 
 The first request after a few idle minutes takes a second or two while Vercel starts an instance. Migrations and the hourly sync still run from GitHub Actions, not Vercel.
 
