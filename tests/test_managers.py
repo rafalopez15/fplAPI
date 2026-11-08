@@ -16,6 +16,7 @@ from src.services import managers
 from src.util import fpl_client
 from src.util.fpl_client import FplNotFoundError, FplUnavailableError
 from tests.conftest import (
+    make_fpl_league,
     make_fpl_history,
     make_fpl_manager,
     make_fpl_picks,
@@ -121,7 +122,7 @@ def test_get_manager(api):
     assert body.keys() == ManagerResponse.model_fields.keys()
     assert body["name"] == "Solio Moose"
     assert body["last_deadline_value"] == 1022
-    assert "leagues" not in body
+    assert [league["id"] for league in body["leagues"]] == [5508, 314]
 
 
 @pytest.mark.usefixtures("fpl")
@@ -132,6 +133,89 @@ def test_real_names_never_leave_the_api(api, path):
     text = api.get(path).text
     assert "Chris" not in text and "Musson" not in text
     assert "player_first_name" not in text and "player_last_name" not in text
+
+
+# --- leagues on GET /api/managers/{id} -----------------------------------------
+
+
+def manager_with(*classic, h2h=()):
+    return make_fpl_manager(leagues={"classic": list(classic), "h2h": list(h2h)})
+
+
+@pytest.mark.usefixtures("fpl")
+def test_a_league_has_its_fields(api):
+    league = api.get("/api/managers/1").json()["leagues"][0]
+    assert league == {
+        "id": 5508,
+        "name": "FPLDev",
+        "kind": "invitational",
+        "size": 23,
+        "rank": 14,
+        "last_rank": 2,
+    }
+
+
+def test_league_kinds(api, fpl):
+    fpl["fetch_manager"].return_value = manager_with(
+        make_fpl_league(1, "Office", "x"), make_fpl_league(2, "England", "s")
+    )
+    kinds = {l["name"]: l["kind"] for l in api.get("/api/managers/1").json()["leagues"]}
+    assert kinds == {"Office": "invitational", "England": "system"}
+
+
+def test_invitational_leagues_come_first_then_smallest_first(api, fpl):
+    fpl["fetch_manager"].return_value = manager_with(
+        make_fpl_league(1, "Overall", "s", rank_count=11_000_000),
+        make_fpl_league(2, "Creator league", "x", rank_count=200_000),
+        make_fpl_league(3, "England", "s", rank_count=3_000_000),
+        make_fpl_league(4, "Office", "x", rank_count=12),
+        make_fpl_league(5, "No size yet", "x"),
+    )
+    names = [l["name"] for l in api.get("/api/managers/1").json()["leagues"]]
+    assert names == ["Office", "Creator league", "No size yet", "England", "Overall"]
+
+
+def test_head_to_head_leagues_are_left_out(api, fpl):
+    # In leagues.h2h, and in case FPL ever lists one under classic.
+    fpl["fetch_manager"].return_value = manager_with(
+        make_fpl_league(1, "Office", "x"),
+        make_fpl_league(2, "H2H in classic", "x", "h"),
+        h2h=[make_fpl_league(3, "H2H", "x", "h")],
+    )
+    assert [l["id"] for l in api.get("/api/managers/1").json()["leagues"]] == [1]
+
+
+@pytest.mark.parametrize(
+    "league",
+    [
+        make_fpl_league(None, "No id", "x"),
+        make_fpl_league(9, "", "x"),
+        make_fpl_league(9, "Unknown type", "c"),
+    ],
+)
+def test_a_league_we_cant_read_is_left_out(api, fpl, league):
+    fpl["fetch_manager"].return_value = manager_with(
+        league, make_fpl_league(1, "Office", "x")
+    )
+    response = api.get("/api/managers/1")
+    assert response.status_code == 200
+    assert [l["id"] for l in response.json()["leagues"]] == [1]
+
+
+def test_missing_league_fields_are_null(api, fpl):
+    fpl["fetch_manager"].return_value = manager_with(
+        {"id": 1, "name": "Office", "league_type": "x", "scoring": "c"}
+    )
+    league = api.get("/api/managers/1").json()["leagues"][0]
+    assert (league["size"], league["rank"], league["last_rank"]) == (None, None, None)
+
+
+@pytest.mark.parametrize(
+    "leagues", [None, {}, {"classic": None}, {"classic": []}, {"h2h": []}]
+)
+def test_no_leagues_is_an_empty_list(api, fpl, leagues):
+    fpl["fetch_manager"].return_value = make_fpl_manager(leagues=leagues)
+    assert api.get("/api/managers/1").json()["leagues"] == []
 
 
 def test_manager_optional_fields_can_be_missing(api, fpl):

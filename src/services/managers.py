@@ -11,6 +11,7 @@ from typing import List, Optional
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from src.models.manager import (
+    League,
     HistoryResponse,
     ManagerResponse,
     PicksResponse,
@@ -23,7 +24,39 @@ logger = logging.getLogger(__name__)
 
 
 def get_manager(manager_id: int) -> ManagerResponse:
-    return ManagerResponse.model_validate(fpl_client.fetch_manager(manager_id))
+    manager = fpl_client.fetch_manager(manager_id)
+    return ManagerResponse.model_validate({**manager, "leagues": leagues(manager)})
+
+
+LEAGUE_KINDS = {"x": "invitational", "s": "system"}
+
+
+def leagues(manager: dict) -> List[League]:
+    """The team's classic leagues, invitational first, each group smallest first.
+
+    Head-to-head leagues, and leagues missing an id or name or of a type we don't
+    know, are left out rather than failing the whole response.
+    """
+    found = [
+        League(
+            id=league["id"],
+            name=league["name"],
+            kind=LEAGUE_KINDS[league.get("league_type")],
+            size=league.get("rank_count"),
+            rank=league.get("entry_rank"),
+            last_rank=league.get("entry_last_rank"),
+        )
+        for league in (manager.get("leagues") or {}).get("classic") or []
+        if league.get("scoring") == "c"
+        and league.get("league_type") in LEAGUE_KINDS
+        and league.get("id") is not None
+        and league.get("name")
+    ]
+    # Leagues FPL gives no size go last in their group.
+    return sorted(
+        found,
+        key=lambda l: (l.kind != "invitational", l.size is None, l.size or 0, l.id),
+    )
 
 
 def get_transfers(manager_id: int, session: Session) -> List[TransferResponse]:

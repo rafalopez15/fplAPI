@@ -221,6 +221,23 @@ def make_fixture(**overrides):
     return fixture
 
 
+def make_fpl_league(league_id, name, league_type, scoring="c", **overrides):
+    """One league in entry/{id}/'s leagues lists, as FPL sends it."""
+    return {
+        "id": league_id,
+        "name": name,
+        "league_type": league_type,
+        "scoring": scoring,
+        "rank_count": None,
+        "entry_rank": 1,
+        "entry_last_rank": 2,
+        "admin_entry": None,
+        "closed": False,
+        "start_event": 1,
+        **overrides,
+    }
+
+
 def make_fpl_manager(**overrides):
     """FPL's entry/{id}/ response, including fields ManagerResponse leaves out."""
     manager = {
@@ -240,10 +257,19 @@ def make_fpl_manager(**overrides):
         "last_deadline_bank": 21,
         "last_deadline_value": 1022,
         "last_deadline_total_transfers": 6,
+        # Classic leagues come back (FPL-95); head-to-head ones don't. Shaped like
+        # FPL's, which send more fields per league than these.
+        "leagues": {
+            "classic": [
+                make_fpl_league(314, "Overall", "s", rank_count=11202427),
+                make_fpl_league(5508, "FPLDev", "x", rank_count=23, entry_rank=14),
+            ],
+            "h2h": [make_fpl_league(2150945, "This will be the year", "x", "h")],
+            "cup": {},
+        },
         # Left out of the response.
         "joined_time": "2026-07-18T09:12:45.123456Z",
         "player_region_id": 241,
-        "leagues": {"classic": [{"id": 314, "name": "Overall"}], "h2h": [], "cup": {}},
         "kit": None,
         "club_badge_src": None,
         "entered_events": [1, 2, 3],

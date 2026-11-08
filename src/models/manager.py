@@ -5,13 +5,29 @@ comes back as null instead of failing the request.
 """
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel
 
 
+class League(BaseModel):
+    """A classic league the team is in, from entry/{id}/'s leagues.classic (FPL-95).
+
+    kind is "invitational" for a league someone created (FPL's league_type "x"),
+    "system" for one FPL puts teams in (Overall, country, club, "s"). size is FPL's
+    rank_count. id is what GET /api/leagues/{id} takes.
+    """
+
+    id: int
+    name: str
+    kind: Literal["invitational", "system"]
+    size: Optional[int] = None
+    rank: Optional[int] = None
+    last_rank: Optional[int] = None
+
+
 class ManagerResponse(BaseModel):
-    """A manager's FPL team, from entry/{id}/. FPL's leagues, kit and badge are left
-    out.
+    """A manager's FPL team, from entry/{id}/, with its classic leagues. FPL's
+    head-to-head leagues, kit and badge are left out.
 
     So is the manager's real name (player_first_name, player_last_name): it never
     leaves the API. Next to anonymous comments it makes harassment easy (FPL-45).
@@ -31,6 +47,8 @@ class ManagerResponse(BaseModel):
     last_deadline_bank: Optional[int] = None
     last_deadline_value: Optional[int] = None
     last_deadline_total_transfers: Optional[int] = None
+    # Invitational leagues first, then system ones, each smallest first.
+    leagues: List[League] = []
 
 
 class TransferResponse(BaseModel):
