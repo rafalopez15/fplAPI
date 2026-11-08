@@ -124,6 +124,26 @@ To set it up:
 
 **If staging gets ahead of `main`**, e.g. after a migration PR is closed without merging, the next migration PR fails with "Can't locate revision". Undo the abandoned migration by running `alembic downgrade <main's head revision>` with `DATABASE_URL` set to staging's session pooler URL, from the abandoned branch (which still has the migration file). Or recreate the staging project and repeat the setup. Two open PRs with migrations conflict on staging the same way; merge or rebase one first.
 
+### Test users on staging
+The iOS Debug build's **Sign in as test user** button (FPL-78) signs in with a password, against staging. The **Staging test users** workflow manages those users, so nobody has to create them by hand or reset a forgotten password in the dashboard. Run it from the **Actions** tab on `main`:
+
+| Action | What it does |
+|---|---|
+| `create` | Creates a confirmed user (default `test@fplsocial.dev`) with the shared password, or resets an existing user's password to it |
+| `delete` | Deletes one test user, with their teams and notes |
+| `clear` | Deletes every `@fplsocial.dev` user. Needs `confirm` set to `CLEAR` |
+
+It only works on staging and only on `@fplsocial.dev` emails. Real users on staging, such as your own email, are never touched. Repository secrets:
+
+| Secret | Value |
+|---|---|
+| `STAGING_SUPABASE_URL` | `https://ltasgegihkapmdqlkaov.supabase.co` |
+| `STAGING_SUPABASE_SECRET_KEY` | Staging's secret key (**Project Settings → API Keys**) |
+| `STAGING_TEST_USER_PASSWORD` | The shared test password. The same value goes in the iOS repo's `Secrets.xcconfig` as `TEST_USER_PASSWORD` |
+| `STAGING_DATABASE_URL` | Already set for the sync (see above) |
+
+To run it locally instead, with staging's values in the environment: `python -m src.jobs.manage_test_users create --email test@fplsocial.dev`.
+
 ### Sign-in (Supabase Auth)
 Account routes (`/api/me...`) need a Supabase access token in `Authorization: Bearer <token>`. The API checks it against the project's public keys at `<SUPABASE_URL>/auth/v1/.well-known/jwks.json`, which must be asymmetric (ES256 or RSA): **Project Settings → JWT Keys**. FPL routes never look at the token. Design and decisions: the FPL-11 design doc in Linear.
 

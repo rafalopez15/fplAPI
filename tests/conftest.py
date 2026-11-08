@@ -559,6 +559,7 @@ def block_network(monkeypatch):
 
     monkeypatch.setattr("src.util.fpl_client.requests.get", _blocked)
     monkeypatch.setattr("src.util.supabase_admin.requests.delete", _blocked)
+    monkeypatch.setattr("src.jobs.manage_test_users.requests.request", _blocked)
 
 
 @pytest.fixture(autouse=True)

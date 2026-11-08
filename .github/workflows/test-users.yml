@@ -1,0 +1,55 @@
+name: Staging test users
+
+# Creates, deletes or clears test users (@fplsocial.dev) on staging's Supabase, for
+# the iOS Debug build's "Sign in as test user" button (FPL-78, FPL-85). Started by
+# hand from the Actions tab, on main. The script refuses any project but staging's.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What to do
+        type: choice
+        options: [create, delete, clear]
+        default: create
+      email:
+        description: The test user (create and delete; must end in @fplsocial.dev)
+        default: test@fplsocial.dev
+      confirm:
+        description: Type CLEAR to delete every test user (clear only)
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  staging:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Shared with the staging sync and migration, so it never runs mid-migration.
+    concurrency:
+      group: staging-database
+      cancel-in-progress: false
+    env:
+      # Inputs reach the script through env, never pasted into the command.
+      ACTION: ${{ inputs.action }}
+      EMAIL: ${{ inputs.email }}
+      CONFIRM: ${{ inputs.confirm }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.13"
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    - name: Manage test users
+      # Secrets on this step only, so no other step (pip install included) sees them.
+      env:
+        SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+        SUPABASE_SECRET_KEY: ${{ secrets.STAGING_SUPABASE_SECRET_KEY }}
+        DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        TEST_USER_PASSWORD: ${{ secrets.STAGING_TEST_USER_PASSWORD }}
+      run: python -m src.jobs.manage_test_users "$ACTION" --email "$EMAIL" --confirm "$CONFIRM"
