@@ -273,3 +273,5 @@ The one-time Black reformat is listed in `.git-blame-ignore-revs`, so `git blame
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 Apart from the test database, the tests need no network access, and they use dummy values for the other settings. CI runs all three on every pull request and on pushes to `main`, with its own Postgres container, and posts the results as a comment on the PR. The comment is updated on each push.
+
+The comment's **Coverage** section shows the total (✅ at or above the 95% gate in `pytest.ini`), the change against `main`, and each changed file under `src/` or `main.py` that has untested lines, with the line numbers. The comparison uses `coverage.xml` from `main`'s latest successful CI run, which each push to `main` saves for 90 days. If there isn't one, the section says so. The gate itself is unchanged: CI still fails under 95%.
