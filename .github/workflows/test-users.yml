@@ -31,10 +31,6 @@ jobs:
       group: staging-database
       cancel-in-progress: false
     env:
-      SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
-      SUPABASE_SECRET_KEY: ${{ secrets.STAGING_SUPABASE_SECRET_KEY }}
-      DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-      TEST_USER_PASSWORD: ${{ secrets.STAGING_TEST_USER_PASSWORD }}
       # Inputs reach the script through env, never pasted into the command.
       ACTION: ${{ inputs.action }}
       EMAIL: ${{ inputs.email }}
@@ -50,4 +46,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     - name: Manage test users
+      # Secrets on this step only, so no other step (pip install included) sees them.
+      env:
+        SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+        SUPABASE_SECRET_KEY: ${{ secrets.STAGING_SUPABASE_SECRET_KEY }}
+        DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        TEST_USER_PASSWORD: ${{ secrets.STAGING_TEST_USER_PASSWORD }}
       run: python -m src.jobs.manage_test_users "$ACTION" --email "$EMAIL" --confirm "$CONFIRM"
