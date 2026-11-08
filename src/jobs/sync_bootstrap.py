@@ -10,6 +10,7 @@ recorded in sync_runs.
 
 Then stores each newly finished gameweek's points per player (element_event_points),
 one gameweek per transaction, so a failure there doesn't undo the bootstrap data.
+Last, it fetches the names of teams on accounts that teams_tracked doesn't have.
 """
 
 import logging
@@ -29,7 +30,10 @@ from src.db.models import (
     Fixture,
     SyncRun,
     Team,
+    TrackedTeam,
+    UserTeam,
 )
+from src.services.user_teams import remember_team
 from src.util import database
 from src.util.fpl_client import (
     FplNotFoundError,
@@ -37,6 +41,7 @@ from src.util.fpl_client import (
     fetch_bootstrap_static,
     fetch_event_live,
     fetch_fixtures,
+    fetch_manager,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,6 +68,7 @@ SYNC_ERRORS = (
 )
 
 MAX_ERROR_LENGTH = 2000
+NAME_BATCH = 100  # team names fetched per run, at most
 
 
 def to_row(model: type[Base], item: dict) -> dict:
@@ -219,6 +225,45 @@ def sync_event_points(
     return True
 
 
+def sync_team_names(
+    engine: Optional[Engine] = None,
+    fetch: Callable[[int], dict] = fetch_manager,
+) -> bool:
+    """Fetch the names of teams on accounts that teams_tracked doesn't have yet.
+
+    A team added through the API gets its name then (FPL-101); this fills in the
+    rest, such as teams added before that, NAME_BATCH per run. A team FPL doesn't
+    have is stored with a null name, so it isn't asked for again. The first other
+    failure stops it until the next run. Returns whether it finished without one.
+    """
+    engine = engine or database.engine
+    with Session(engine) as session:
+        missing = list(
+            session.scalars(
+                select(UserTeam.manager_id)
+                .distinct()
+                .where(UserTeam.manager_id.not_in(select(TrackedTeam.manager_id)))
+                .order_by(UserTeam.manager_id)
+                .limit(NAME_BATCH)
+            )
+        )
+    for manager_id in missing:
+        try:
+            name = fetch(manager_id).get("name")
+        except FplNotFoundError:
+            name = None
+        except SYNC_ERRORS as exc:
+            logger.error(
+                "Team name sync stopped at team %s: %s", manager_id, describe(exc)
+            )
+            return False
+        with Session(engine) as session, session.begin():
+            remember_team(session, manager_id, name)
+    if missing:
+        logger.info("Stored the names of %s team(s)", len(missing))
+    return True
+
+
 def main() -> int:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -228,6 +273,7 @@ def main() -> int:
         # events.data_checked, which an older bootstrap sync has already stored.
         succeeded = sync_bootstrap()
         succeeded = sync_event_points() and succeeded
+        succeeded = sync_team_names() and succeeded
     except SQLAlchemyError as exc:
         logger.error("Could not record the sync run: %s", describe(exc))
         return 1
