@@ -85,6 +85,9 @@ jobs:
   test:
     name: Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read  # to download main's coverage report
     services:
       # A throwaway database for the tests. Never point tests at Supabase.
       postgres:
@@ -104,6 +107,9 @@ jobs:
       TEST_DATABASE_URL: postgresql+psycopg://fpl:fpl@localhost:5432/fpl_test
     steps:
     - uses: actions/checkout@v5
+      with:
+        # A PR checks out its merge commit; the parent is main, for the changed files.
+        fetch-depth: 2
     - name: Set up Python 3.13
       uses: actions/setup-python@v6
       with:
@@ -114,20 +120,51 @@ jobs:
         pip install -r requirements-dev.txt
     - name: Run tests with coverage
       # -v lists every test, -ra adds a summary of anything that didn't pass.
+      # coverage.xml is for the coverage summary; local runs don't write it.
       run: |
-        python -m pytest -v -ra --junitxml=test-results.xml
+        python -m pytest -v -ra --junitxml=test-results.xml --cov-report=xml:coverage.xml
     - name: Summarize test results
       if: always()
       run: |
         python .github/scripts/summarize_tests.py test-results.xml tests-summary.md
-    - name: Upload the summary for the PR comment
+    - name: Get main's coverage and the PR's changed files
+      if: always() && github.event_name == 'pull_request'
+      # Main's report is from its latest successful CI run. Without one, the summary
+      # says there's nothing to compare against.
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml \
+          --branch main --event push --status success --limit 1 \
+          --json databaseId --jq '.[0].databaseId')
+        if [ -n "$run_id" ]; then
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" -n coverage-main \
+            -D baseline || echo "No coverage report on main's run $run_id"
+        fi
+        git diff --name-only --diff-filter=d HEAD^1 HEAD -- '*.py' > changed-files.txt
+    - name: Summarize coverage
+      if: always()
+      run: |
+        python .github/scripts/summarize_coverage.py coverage.xml \
+          baseline/coverage.xml changed-files.txt coverage-summary.md
+    - name: Upload the summaries for the PR comment
       if: always()
       uses: actions/upload-artifact@v7
       with:
         name: ci-summary-tests
-        path: tests-summary.md
+        path: |
+          tests-summary.md
+          coverage-summary.md
         if-no-files-found: ignore
         retention-days: 7
+    - name: Save main's coverage for PRs to compare against
+      if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: actions/upload-artifact@v7
+      with:
+        name: coverage-main
+        path: coverage.xml
+        if-no-files-found: ignore
+        retention-days: 90
 
   report:
     name: PR comment
@@ -160,6 +197,8 @@ jobs:
           echo "**CI for \`${SHA:0:7}\`** · [workflow run]($RUN_URL)"
           echo
           cat summaries/tests-summary.md 2>/dev/null || echo "## ⚠️ Tests didn't report results"
+          echo
+          cat summaries/coverage-summary.md 2>/dev/null || echo "## ⚠️ Coverage wasn't reported"
           echo
           cat summaries/pylint-summary.md 2>/dev/null || echo "## ⚠️ Pylint didn't report results"
           echo
