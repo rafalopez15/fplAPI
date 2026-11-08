@@ -66,6 +66,35 @@ def test_read_report_has_the_total_and_each_file(cov, tmp_path):
     assert report["files"]["src/b.py"]["missing"] == ["3–7", "12"]
 
 
+# coverage.py's XML for a file where f(1) and g(1) skip both ifs' other branch,
+# as written with --cov-branch. Line 4 never runs.
+BRANCHES = """<?xml version="1.0" ?>
+<coverage lines-valid="10" lines-covered="9" branches-valid="4" branches-covered="2">
+<packages><package name="."><classes><class name="demo.py" filename="demo.py"><lines>
+<line number="1" hits="1"/>
+<line number="2" hits="1" branch="true" condition-coverage="50% (1/2)" missing-branches="4"/>
+<line number="3" hits="1"/>
+<line number="4" hits="0"/>
+<line number="7" hits="1"/>
+<line number="8" hits="1" branch="true" condition-coverage="50% (1/2)" missing-branches="10"/>
+<line number="9" hits="1"/>
+<line number="10" hits="1"/>
+<line number="12" hits="1"/>
+<line number="13" hits="1"/>
+</lines></class></classes></package></packages></coverage>"""
+
+
+def test_branches_count_toward_coverage(cov, tmp_path):
+    path = tmp_path / "branches.xml"
+    path.write_text(BRANCHES, encoding="utf-8")
+    report = cov.read_report(path)
+    # coverage.py's own report says 79%: (9 lines + 2 branches) / (10 + 4).
+    assert report["total"] == pytest.approx(11 / 14 * 100)
+    assert report["files"]["demo.py"]["percent"] == pytest.approx(11 / 14 * 100)
+    # 2→4 is left out because line 4 is listed already, as coverage.py does.
+    assert report["files"]["demo.py"]["missing"] == ["4", "8→10"]
+
+
 def test_percent_never_rounds_up_to_100(cov):
     assert cov.percent(9999, 10000) == 99.9
     assert cov.percent(10, 10) == 100.0
@@ -120,6 +149,7 @@ def test_changed_files_with_gaps_are_a_table(cov):
     }
     markdown = cov.to_markdown(report(97.4, files), 95, None, ["src/b.py", "src/a.py"])
     assert "| `src/b.py` | 50.0% | 3–7, 12 |" in markdown
+    assert "Untested lines and branches" in markdown
     assert "<summary>✅ 1 changed file(s) fully covered</summary>" in markdown
     assert "- `src/a.py`" in markdown
 

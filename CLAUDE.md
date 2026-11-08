@@ -199,7 +199,7 @@ Use these status codes consistently:
 
 ## Testing
 
-- pytest with pytest-cov. `pytest.ini` enforces **≥95% coverage** on `src` and `main`, currently at 100%.
+- pytest with pytest-cov. `pytest.ini` enforces **≥95% coverage** on `src` and `main`, counting branches as well as lines (`--cov-branch`, so an untested `else` counts as a gap), currently at 100%.
 - `tests/conftest.py`:
   - Sets the required env vars before importing `src`, so tests don't need a `.env` file (e.g. in CI).
   - FPL-shaped builders (`make_team()`, `make_element()`, `make_event()`, `future_event()`, `ELEMENT_TYPES`) are shared by the API and sync tests.

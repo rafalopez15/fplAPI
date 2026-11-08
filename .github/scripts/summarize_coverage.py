@@ -37,23 +37,61 @@ def read(path):
 def read_report(path):
     """Total and per-file coverage: {"total": percent, "files": {path: file}}.
 
-    Each file is {"percent": ..., "missing": [line ranges]}. Paths are repo
-    relative, as coverage.py writes them.
+    Each file is {"percent": ..., "missing": [...]}: untested line ranges and
+    branches, e.g. ["4", "8→10"]. Percentages count branches as well as lines, as
+    pytest-cov's gate does with --cov-branch. Paths are repo relative, as
+    coverage.py writes them.
     """
     root = ET.parse(path).getroot()
     files = {}
     for cls in root.iter("class"):
-        lines = sorted(
-            (int(line.get("number")), int(line.get("hits")) > 0)
-            for line in cls.iter("line")
-        )
+        elements = sorted(cls.iter("line"), key=lambda line: int(line.get("number")))
+        lines = [
+            (int(line.get("number")), int(line.get("hits")) > 0) for line in elements
+        ]
         covered = sum(1 for _, hit in lines if hit)
+        branches = [branch_counts(line) for line in elements]
         files[cls.get("filename")] = {
-            "percent": percent(covered, len(lines)),
-            "missing": ranges(lines),
+            "percent": percent(
+                covered + sum(taken for taken, _ in branches),
+                len(lines) + sum(total for _, total in branches),
+            ),
+            "missing": sorted(
+                ranges(lines) + partial_branches(elements, lines), key=first_line
+            ),
         }
-    total = percent(int(root.get("lines-covered")), int(root.get("lines-valid")))
+    total = percent(
+        int(root.get("lines-covered")) + int(root.get("branches-covered", 0)),
+        int(root.get("lines-valid")) + int(root.get("branches-valid", 0)),
+    )
     return {"total": total, "files": files}
+
+
+def branch_counts(line):
+    """(taken, total) branches from a line's condition-coverage, e.g. "50% (1/2)"."""
+    match = re.search(r"\((\d+)/(\d+)\)", line.get("condition-coverage") or "")
+    return (int(match.group(1)), int(match.group(2))) if match else (0, 0)
+
+
+def partial_branches(elements, lines):
+    """Branches never taken from lines that ran, e.g. "8→10".
+
+    Like coverage.py's report, a branch to a line that never ran is left out: that
+    line is already listed as missing.
+    """
+    missed = {number for number, hit in lines if not hit}
+    found = []
+    for line in elements:
+        if int(line.get("hits")) == 0 or not line.get("missing-branches"):
+            continue
+        for target in line.get("missing-branches").split(","):
+            if not (target.isdigit() and int(target) in missed):
+                found.append(f"{line.get('number')}→{target}")
+    return found
+
+
+def first_line(missing):
+    return int(re.match(r"\d+", missing).group())
 
 
 def percent(covered, valid):
@@ -128,7 +166,10 @@ def changed_files(files, paths):
     covered = [path for path in paths if not files[path]["missing"]]
     lines = []
     if gaps:
-        table = ["| Changed file | Coverage | Missing lines |", "|---|---|---|"]
+        table = [
+            "| Changed file | Coverage | Untested lines and branches |",
+            "|---|---|---|",
+        ]
         for path in gaps:
             file = files[path]
             missing = ", ".join(file["missing"])
