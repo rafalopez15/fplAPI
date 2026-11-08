@@ -324,6 +324,22 @@ class UserTeam(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
+class TrackedTeam(Base):
+    """An FPL team on at least one account, with what we keep about it (FPL-101).
+
+    One row per team however many accounts have it, so its name is stored once.
+    There's no foreign key to user_teams: the row outlives the last account that
+    removes the team, and the timeline's gameweek pass (FPL-15) adds to it. name is
+    null when FPL had no such team.
+    """
+
+    __tablename__ = "teams_tracked"
+
+    manager_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    name: Mapped[Optional[str]]
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
 class Note(Base):
     """A signed-in user's note, synced across their devices (FPL-49).
 
