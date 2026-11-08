@@ -88,6 +88,7 @@ jobs:
     permissions:
       contents: read
       actions: read  # to download main's coverage report
+      pull-requests: read  # to list the PR's changed files
     services:
       # A throwaway database for the tests. Never point tests at Supabase.
       postgres:
@@ -107,9 +108,6 @@ jobs:
       TEST_DATABASE_URL: postgresql+psycopg://fpl:fpl@localhost:5432/fpl_test
     steps:
     - uses: actions/checkout@v5
-      with:
-        # A PR checks out its merge commit; the parent is main, for the changed files.
-        fetch-depth: 2
     - name: Set up Python 3.13
       uses: actions/setup-python@v6
       with:
@@ -130,9 +128,11 @@ jobs:
     - name: Get main's coverage and the PR's changed files
       if: always() && github.event_name == 'pull_request'
       # Main's report is from its latest successful CI run. Without one, the summary
-      # says there's nothing to compare against.
+      # says there's nothing to compare against. The changed files come from GitHub's
+      # API, not git, so they don't depend on how much history the checkout fetched.
       env:
         GH_TOKEN: ${{ github.token }}
+        PR: ${{ github.event.pull_request.number }}
       run: |
         run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml \
           --branch main --event push --status success --limit 1 \
@@ -141,7 +141,15 @@ jobs:
           gh run download "$run_id" --repo "$GITHUB_REPOSITORY" -n coverage-main \
             -D baseline || echo "No coverage report on main's run $run_id"
         fi
-        git diff --name-only --diff-filter=d HEAD^1 HEAD -- '*.py' > changed-files.txt
+        # If GitHub can't list them, the summary leaves the table out rather than
+        # saying nothing changed.
+        if gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only > changed-files.txt; then
+          echo "Changed files:"
+          cat changed-files.txt
+        else
+          echo "Couldn't list the PR's changed files"
+          rm -f changed-files.txt
+        fi
     - name: Summarize coverage
       if: always()
       run: |
