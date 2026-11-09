@@ -8,6 +8,7 @@ FplUnavailableError when FPL can't be reached.
 
 import logging
 from typing import List, Optional
+from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from src.models.manager import (
@@ -25,37 +26,52 @@ logger = logging.getLogger(__name__)
 
 def get_manager(manager_id: int) -> ManagerResponse:
     manager = fpl_client.fetch_manager(manager_id)
-    return ManagerResponse.model_validate({**manager, "leagues": leagues(manager)})
+    return ManagerResponse.model_validate(
+        {**manager, "leagues": _classic_leagues(manager)}
+    )
 
 
 LEAGUE_KINDS = {"x": "invitational", "s": "system"}
 
 
-def leagues(manager: dict) -> List[League]:
+def _classic_leagues(manager: dict) -> List[League]:
     """The team's classic leagues, invitational first, each group smallest first.
 
-    Head-to-head leagues, and leagues missing an id or name or of a type we don't
-    know, are left out rather than failing the whole response.
+    Head-to-head leagues, and leagues missing an id or name, of a type we don't
+    know, or with fields we can't read, are left out rather than failing the whole
+    response.
     """
-    found = [
-        League(
-            id=league["id"],
-            name=league["name"],
-            kind=LEAGUE_KINDS[league.get("league_type")],
-            size=league.get("rank_count"),
-            rank=league.get("entry_rank"),
-            last_rank=league.get("entry_last_rank"),
-        )
-        for league in (manager.get("leagues") or {}).get("classic") or []
-        if league.get("scoring") == "c"
-        and league.get("league_type") in LEAGUE_KINDS
-        and league.get("id") is not None
-        and league.get("name")
-    ]
+    found = []
+    for raw in (manager.get("leagues") or {}).get("classic") or []:
+        if not (
+            raw.get("scoring") == "c"
+            and raw.get("league_type") in LEAGUE_KINDS
+            and raw.get("id") is not None
+            and raw.get("name")
+        ):
+            continue
+        try:
+            found.append(
+                League(
+                    id=raw["id"],
+                    name=raw["name"],
+                    kind=LEAGUE_KINDS[raw["league_type"]],
+                    size=raw.get("rank_count"),
+                    rank=raw.get("entry_rank"),
+                    last_rank=raw.get("entry_last_rank"),
+                )
+            )
+        except ValidationError as exc:
+            logger.warning("Skipping unreadable league %r: %s", raw.get("id"), exc)
     # Leagues FPL gives no size go last in their group.
     return sorted(
         found,
-        key=lambda l: (l.kind != "invitational", l.size is None, l.size or 0, l.id),
+        key=lambda league: (
+            league.kind != "invitational",
+            league.size is None,
+            league.size or 0,
+            league.id,
+        ),
     )
 
 

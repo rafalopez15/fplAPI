@@ -159,7 +159,10 @@ def test_league_kinds(api, fpl):
     fpl["fetch_manager"].return_value = manager_with(
         make_fpl_league(1, "Office", "x"), make_fpl_league(2, "England", "s")
     )
-    kinds = {l["name"]: l["kind"] for l in api.get("/api/managers/1").json()["leagues"]}
+    kinds = {
+        league["name"]: league["kind"]
+        for league in api.get("/api/managers/1").json()["leagues"]
+    }
     assert kinds == {"Office": "invitational", "England": "system"}
 
 
@@ -171,7 +174,7 @@ def test_invitational_leagues_come_first_then_smallest_first(api, fpl):
         make_fpl_league(4, "Office", "x", rank_count=12),
         make_fpl_league(5, "No size yet", "x"),
     )
-    names = [l["name"] for l in api.get("/api/managers/1").json()["leagues"]]
+    names = [league["name"] for league in api.get("/api/managers/1").json()["leagues"]]
     assert names == ["Office", "Creator league", "No size yet", "England", "Overall"]
 
 
@@ -182,7 +185,9 @@ def test_head_to_head_leagues_are_left_out(api, fpl):
         make_fpl_league(2, "H2H in classic", "x", "h"),
         h2h=[make_fpl_league(3, "H2H", "x", "h")],
     )
-    assert [l["id"] for l in api.get("/api/managers/1").json()["leagues"]] == [1]
+    assert [
+        league["id"] for league in api.get("/api/managers/1").json()["leagues"]
+    ] == [1]
 
 
 @pytest.mark.parametrize(
@@ -191,6 +196,8 @@ def test_head_to_head_leagues_are_left_out(api, fpl):
         make_fpl_league(None, "No id", "x"),
         make_fpl_league(9, "", "x"),
         make_fpl_league(9, "Unknown type", "c"),
+        make_fpl_league("not a number", "Bad id", "x"),
+        make_fpl_league(9, "Bad size", "x", rank_count="lots"),
     ],
 )
 def test_a_league_we_cant_read_is_left_out(api, fpl, league):
@@ -199,7 +206,7 @@ def test_a_league_we_cant_read_is_left_out(api, fpl, league):
     )
     response = api.get("/api/managers/1")
     assert response.status_code == 200
-    assert [l["id"] for l in response.json()["leagues"]] == [1]
+    assert [league["id"] for league in response.json()["leagues"]] == [1]
 
 
 def test_missing_league_fields_are_null(api, fpl):
