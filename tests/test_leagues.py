@@ -149,7 +149,7 @@ def test_invalid_id_returns_422_without_calling_fpl(api, fetch, bad_id):
     fetch.assert_not_called()
 
 
-@pytest.mark.parametrize("bad_page", ["0", "-1", "abc"])
+@pytest.mark.parametrize("bad_page", ["0", "-1", "abc", "2147483648"])
 def test_invalid_page_returns_422_without_calling_fpl(api, fetch, bad_page):
     assert api.get(f"/api/leagues/5508?page={bad_page}").status_code == 422
     fetch.assert_not_called()

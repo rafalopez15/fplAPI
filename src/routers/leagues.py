@@ -1,7 +1,7 @@
 from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, Response
 from src.models.league import LeagueStandingsResponse
-from src.routers.params import LeagueId
+from src.routers.params import LeagueId, POSTGRES_INT_MAX
 from src.services import leagues
 from src.util.fpl_client import FplNotFoundError
 
@@ -15,7 +15,9 @@ LEAGUE_CACHE = "s-maxage=300, stale-while-revalidate=600"
 def get_league(
     league_id: LeagueId,
     response: Response,
-    page: Annotated[int, Query(gt=0, description="The page, 50 teams each")] = 1,
+    page: Annotated[
+        int, Query(gt=0, le=POSTGRES_INT_MAX, description="The page, 50 teams each")
+    ] = 1,
 ) -> LeagueStandingsResponse:
     """Get a page of a classic league's standings, by rank. Never managers' real
     names.

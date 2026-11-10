@@ -3,8 +3,8 @@ from src.routers.events import events_router
 from src.routers.teams import teams_router
 from src.routers.elements import elements_router
 from src.routers.fixtures import fixtures_router
-from src.routers.managers import managers_router
 from src.routers.leagues import leagues_router
+from src.routers.managers import managers_router
 from src.routers.me import me_router
 from src.routers.notes import notes_router
 
