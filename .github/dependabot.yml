@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Waits a week after a release, so a compromised one is usually pulled first.
+    cooldown:
+      default-days: 7
+    # Minor and patch updates in one PR; each major update gets its own.
+    groups:
+      actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
