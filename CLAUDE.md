@@ -55,17 +55,20 @@ src/
     fixtures.py          /fixtures (optional ?finished= and ?started= filters)
     managers.py          /managers/{id}, /managers/{id}/transfers, /managers/{id}/history,
                          /managers/{id}/picks?event= (live from FPL)
+    leagues.py           /leagues/{id}?page=: a classic league's standings (live from FPL)
     me.py                /me: the signed-in user's account (Supabase sign-in token), and
                          DELETE /me to delete it;
                          /me/teams, /me/teams/{manager_id}: their teams and followed teams
     notes.py             /me/notes, /me/notes/{note_id}: notes synced across devices
   services/              Business logic: queries that return Pydantic models
     transfer_points.py   Net points per transfer, and Wildcard/Free Hit churn (is_churn)
+    leagues.py           A classic league's standings page, flattened from FPL's response
     profiles.py          Accounts: ensure_profile() creates the row if it's missing
     user_teams.py        An account's FPL teams: list, add or switch (checks FPL), remove
     notes.py             Synced notes: newest updated_at wins, tombstones, the ?since= cursor
   models/                Pydantic response models (ElementResponse, EventResponse, TeamResponse,
-                         ProfileResponse, UserTeamResponse, NoteRequest, NoteResponse)
+                         ProfileResponse, UserTeamResponse, NoteRequest, NoteResponse,
+                         LeagueStandingsResponse)
   db/
     models.py            SQLAlchemy ORM tables; Alembic autogenerates migrations from them
   jobs/
@@ -77,7 +80,8 @@ src/
     supabase_admin.py    Supabase's Auth Admin API (delete_user), with the secret key
     config.py            Reads .env (python-dotenv) into module-level constants
     database.py          Engine, session dependencies (DataSession), sync state, health checks
-    fpl_client.py        All FPL calls: the sync job's fetches and the live ones (manager*, event_live)
+    fpl_client.py        All FPL calls: the sync job's fetches and the live ones (manager*, event_live,
+                         league_standings)
 tests/                   pytest suite, one file per layer (test_db.py: schema and migrations)
 vercel.json              Vercel settings: function region (cle1)
 .python-version          Python version for Vercel (3.13)
@@ -86,7 +90,7 @@ Dockerfile               Image for running the API locally (Vercel doesn't use i
 
 **Request flow:** router → service → SQLAlchemy query on Postgres → Pydantic response model.
 
-The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live through `fpl_client` (router → service → `fetch_*()` → FPL). Manager data is per user and can't be synced ahead of time, and live points change by the minute during matches. Vercel's CDN caches their successful responses (see Fetching), and they don't touch the database, so they work even when the sync is behind. The one exception is `/transfers`, which also reads stored gameweek points (see Net points per transfer); it takes a plain `get_session`, not `DataSession`, and returns null points if the database can't be read.
+The exceptions are `/managers/...`, `/leagues/{id}` and `/events/{id}/live`, which call FPL live through `fpl_client` (router → service → `fetch_*()` → FPL). Manager data is per user and there are too many leagues to store, so neither can be synced ahead of time, and live points change by the minute during matches. Vercel's CDN caches their successful responses (see Fetching), and they don't touch the database, so they work even when the sync is behind. The one exception is `/transfers`, which also reads stored gameweek points (see Net points per transfer); it takes a plain `get_session`, not `DataSession`, and returns null points if the database can't be read.
 
 **Account routes** (`/api/me...`, FPL-11) are the signed-in user's own data: router → `CurrentUser` (the token) → service → Postgres. They take a plain `get_session`, since accounts don't depend on the FPL sync, and every query filters by the user id from the token. See Accounts and sign-in.
 
@@ -102,7 +106,7 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
 ### Configuration
 - **Secrets and per-environment settings live in `.env`**, are read in `src/util/config.py`, and are imported as constants. Values that are the same everywhere don't belong there.
 - `DATABASE_URL` is the only required setting. It goes through `_get_env()`, which strips surrounding whitespace and raises at import time if it's missing or empty, so the app fails fast. Optional ones, like `FPL_REQUEST_TIMEOUT` (default 10s), use `os.getenv` with a default. A new setting should be optional with a default: the deployed API imports `config.py` too, and a new required setting would stop it from starting until it was added in Vercel.
-- **FPL's API paths are constants in `src/util/fpl_client.py`** (`BOOTSTRAP_STATIC_URL`, `FIXTURES_URL`, `ENTRY_URL`, `EVENT_URL`), built from `FPL_BASE_URL`. That one is optional, defaulting to `https://fantasy.premierleague.com/api`, so it can point at a local mock. To call a new FPL endpoint, add a constant there, not a setting.
+- **FPL's API paths are constants in `src/util/fpl_client.py`** (`BOOTSTRAP_STATIC_URL`, `FIXTURES_URL`, `ENTRY_URL`, `EVENT_URL`, `LEAGUE_STANDINGS_URL`), built from `FPL_BASE_URL`. That one is optional, defaulting to `https://fantasy.premierleague.com/api`, so it can point at a local mock. To call a new FPL endpoint, add a constant there, not a setting.
 - `.env` is gitignored; `.env.example` is committed and must stay in sync with it.
 
 ### Database
@@ -138,18 +142,19 @@ The exceptions are `/managers/...` and `/events/{id}/live`, which call FPL live 
 ### Fetching
 - All FPL calls go through `src/util/fpl_client.py`, with a timeout and a descriptive `User-Agent` (`HEADERS`).
 - **Sync job:** `fetch_bootstrap_static()` and `fetch_fixtures()` use `FPL_REQUEST_TIMEOUT` (default 10s) and raise `requests` errors on network errors, error statuses (`raise_for_status()`) and invalid JSON. The job catches them, records the failed run, and leaves the previous data in place.
-- **Live endpoints:** `fetch_manager()`, `fetch_manager_transfers()`, `fetch_manager_history()`, `fetch_manager_picks()` and `fetch_event_live()` go through `_get_live_json()` and use the shorter `FPL_PROXY_TIMEOUT` (default 5s), because someone is waiting. They raise `FplNotFoundError` for FPL's 404 and `FplUnavailableError` for everything else, including timeouts, 429/5xx and FPL's HTML "the game is being updated" page.
+- **Live endpoints:** `fetch_manager()`, `fetch_manager_transfers()`, `fetch_manager_history()`, `fetch_manager_picks()`, `fetch_event_live()` and `fetch_league_standings()` go through `_get_live_json()` and use the shorter `FPL_PROXY_TIMEOUT` (default 5s), because someone is waiting. They raise `FplNotFoundError` for FPL's 404 and `FplUnavailableError` for everything else, including timeouts, 429/5xx and FPL's HTML "the game is being updated" page.
 - **Leagues** (FPL-95): `/managers/{id}` includes the team's classic leagues from the same `entry/{id}/` response, so they cost no extra FPL call. Each is `id`, `name`, `kind` (`invitational` for FPL's `league_type` `x`, created by someone; `system` for `s`, like Overall, country or club), `size` (`rank_count`), `rank` and `last_rank`, ordered invitational first, then smallest first. Head-to-head leagues, and any league missing an id or name or of an unknown type, are left out rather than failing the response. The app builds "Your leagues" from its `mine` teams only; nothing about leagues is stored (Linear doc "Design: timeline, following and leagues").
+- **League standings** (FPL-96): `/leagues/{id}?page=` flattens FPL's `leagues-classic/{id}/standings/?page_standings=` to the league's `id`, `name`, `last_updated` (FPL's `last_updated_data`), `page`, `has_next` and `standings`: per team `entry` (the manager id, for `/managers/{id}`), `entry_name`, `rank`, `last_rank`, `total` and `event_total`, never `player_name`. One FPL call per page of 50; `page` defaults to 1. A page past the end is 200 with no standings, as FPL sends it. FPL's response has no league size: the app has it from the team's `leagues`. FPL's classic endpoint answers 404 for a head-to-head league, so those are `"League not found"` until head-to-head has its own story.
 - **Picks:** FPL only publishes a squad once the gameweek's deadline has passed. Without `?event=`, `/picks` first calls `fetch_manager()` for the manager's `current_event` (two FPL calls), and returns 404 if there's none yet. FPL's 404 for a gameweek with no picks (before the manager joined, or not yet played) is also "Manager not found".
 - **Live points:** `/events/{id}/live` flattens FPL's `event/{gw}/live/` (about 475KB, ~30 stats and a breakdown per player) to `id`, `total_points` and `minutes` per player (about 27KB). FPL returns an empty list for a gameweek that hasn't started (200 `[]`) and 404 outside 1–38 (`"Event not found"`).
 - **Net points per transfer** (`src/services/transfer_points.py`, FPL-33; design doc on the Linear issue): `/transfers` adds `is_churn`, `points_in`, `points_out` and `net_points` to each row, and costs one more FPL call (`/history`, for Free Hit gameweeks).
   - In Wildcard and Free Hit weeks FPL's list records every swap tried (55 rows for one Free Hit), so each gameweek is reduced to its real changes: players bought more often than sold, and sold more often than bought. Rows pairing a real in with a real out are real transfers; the rest are `is_churn`. Real changes no row pairs are paired by position (earliest bought with earliest sold) and returned as rows the API builds, with the incoming player's buy `time`.
   - A transfer for gameweek N covers N until the gameweek before the player is sold again, or the latest stored gameweek. A Free Hit transfer covers its gameweek only and doesn't end an earlier one. Points are null for churn, before N is stored, and when the database can't be read. Pairing needs positions from the database too, so without it a gameweek with unpaired changes isn't flagged as churn at all: the app shows FPL's rows for that week, rather than hiding real changes.
-- **Caching:** the live routes set `Cache-Control: s-maxage=..., stale-while-revalidate=...` on successful responses, so Vercel's CDN serves repeats without calling FPL: 60s for the manager, transfers, picks and live points, 300s for history. Errors send `no-store`. An in-memory cache would be useless on Vercel, whose instances don't share memory and scale to zero.
+- **Caching:** the live routes set `Cache-Control: s-maxage=..., stale-while-revalidate=...` on successful responses, so Vercel's CDN serves repeats without calling FPL: 60s for the manager, transfers, picks and live points, 300s for history and league standings. Errors send `no-store`. An in-memory cache would be useless on Vercel, whose instances don't share memory and scale to zero.
 
 ### Managers' real names
 - **They never leave the API** (product rule from FPL-11, done in FPL-45). FPL sends a manager's first and last name with their team, but FPL Social puts anonymous usernames and public comments next to teams, and a real name there makes harassment easy. Teams are shown by team name only. `player_region_name` (a country) stays.
-- Response models leave the name fields out, and Pydantic drops fields a model doesn't declare. `test_real_names_never_leave_the_api` checks every manager route's response for the fixture's name. Any new endpoint built from FPL data about managers (league standings send `player_name`) must leave them out too, with the same kind of test.
+- Response models leave the name fields out, and Pydantic drops fields a model doesn't declare. `test_real_names_never_leave_the_api` checks every manager route's response for the fixture's name, and `tests/test_leagues.py` has one for league standings, which send `player_name`. Any new endpoint built from FPL data about managers must leave them out too, with the same kind of test.
 
 ### Accounts and sign-in
 - **Accounts are optional** (product rule from FPL-11). FPL routes never read the `Authorization` header and never need an account, and viewing any team must stay that way. Accounts are for synced notes and following teams. Design doc: on FPL-11 in Linear.
@@ -178,7 +183,7 @@ Use these status codes consistently:
 |---|---|
 | No bootstrap sync has succeeded yet (`FplDataUnavailableError`), or the database is unreachable (`OperationalError`) | **503** `"FPL data is currently unavailable"`, from the handlers in `main.py` |
 | A live call to FPL fails (`FplUnavailableError`) | **503** `"FPL is unavailable right now"`, with `Cache-Control: no-store` |
-| Single-item lookup or filter finds nothing | **404** with a resource-specific detail, e.g. `"Team not found"`. Unknown FPL managers: `"Manager not found"`, and gameweeks FPL doesn't have on `/live`: `"Event not found"`, both with `no-store` |
+| Single-item lookup or filter finds nothing | **404** with a resource-specific detail, e.g. `"Team not found"`. Unknown FPL managers: `"Manager not found"`, gameweeks FPL doesn't have on `/live`: `"Event not found"`, and unknown or head-to-head leagues: `"League not found"`, all with `no-store` |
 | Collection endpoint with no items | **200** with `[]` |
 | Invalid path parameter: not an integer, 0 or less, or over Postgres's `integer` maximum (see `src/routers/params.py`) | **422** (FastAPI default) |
 | Account route without a valid sign-in token (missing, malformed, expired, wrong `aud`/`iss`, forged, or HS256) | **401** `"Not signed in"`, with `WWW-Authenticate: Bearer` |
