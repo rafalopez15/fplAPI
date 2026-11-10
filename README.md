@@ -68,7 +68,7 @@ The API uses a PostgreSQL database hosted on Supabase's free plan.
 Keep in mind:
 - Never commit `DATABASE_URL` or paste it anywhere public: it contains the password.
 - Free projects pause after a week without activity. Restore the project from the Supabase dashboard if that happens.
-- If you reset the database password in Supabase, update `DATABASE_URL` in `.env`, in Vercel and in the GitHub secret.
+- If you reset the database password in Supabase, update `DATABASE_URL` in `.env`, in Vercel and in the GitHub `production` environment.
 
 ## 🔀 Migrations (Alembic)
 Schema changes are versioned migrations in `migrations/versions/`. Alembic reads the connection string from `DATABASE_URL`, so **commands run against whichever database `.env` points at**. Run them against the local test database (`DATABASE_URL=$TEST_DATABASE_URL alembic ...`). Supabase is migrated only by the **Migrate database** workflow: staging on the PR, production on merge, with the hourly sync held off while it runs. Don't run `alembic upgrade head` against Supabase yourself.
@@ -94,12 +94,14 @@ Don't edit a migration that has already been applied: add a new one instead.
 
 When a change to `migrations/`, `src/db/` or `alembic.ini` reaches `main`, the **Migrate database** workflow applies it to Supabase with `alembic upgrade head`.
 
-Both workflows have a job for production and one for [staging](#staging-database-for-previews). They need each database's session pooler connection string as a repository secret (**Settings → Secrets and variables → Actions → New repository secret**):
+Both workflows have a job for production and one for [staging](#staging-database-for-previews). They need each database's session pooler connection string as a GitHub secret:
 
-| Secret | Value |
-|---|---|
-| `DATABASE_URL` | Production's session pooler URL, the same as `DATABASE_URL` in your `.env` |
-| `STAGING_DATABASE_URL` | Staging's session pooler URL |
+| Secret | Where | Value |
+|---|---|---|
+| `DATABASE_URL` | `production` environment | Production's session pooler URL, the same as `DATABASE_URL` in your `.env` |
+| `STAGING_DATABASE_URL` | Repository | Staging's session pooler URL |
+
+Production's URL lives in a [GitHub Environment](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments) (**Settings → Environments → production**), not a repository secret (FPL-105). Its **Deployment branches and tags** rule allows `main` only, so a workflow run from any other branch can't read it, even if the branch edits the workflow to remove its `if: main` guard. Jobs use it with `deployment: false`, so the hourly sync doesn't add a deployment record every hour. Staging's URL stays a repository secret, because the migration's staging job runs on pull requests.
 
 Both can also be started by hand from the **Actions** tab (**Run workflow**). Started from `main`, they run against production and staging; started from any other branch, against staging only. To run the sync locally against the database in your `.env`:
 
@@ -133,14 +135,16 @@ The iOS Debug build's **Sign in as test user** button (FPL-78) signs in with a p
 | `delete` | Deletes one test user, with their teams and notes |
 | `clear` | Deletes every `@fplsocial.dev` user. Needs `confirm` set to `CLEAR` |
 
-It only works on staging and only on `@fplsocial.dev` emails. Real users on staging, such as your own email, are never touched. Repository secrets:
+It only works on staging and only on `@fplsocial.dev` emails. Real users on staging, such as your own email, are never touched. Secrets:
 
-| Secret | Value |
-|---|---|
-| `STAGING_SUPABASE_URL` | `https://ltasgegihkapmdqlkaov.supabase.co` |
-| `STAGING_SUPABASE_SECRET_KEY` | Staging's secret key (**Project Settings → API Keys**) |
-| `STAGING_TEST_USER_PASSWORD` | The shared test password. The same value goes in the iOS repo's `Secrets.xcconfig` as `TEST_USER_PASSWORD` |
-| `STAGING_DATABASE_URL` | Already set for the sync (see above) |
+| Secret | Where | Value |
+|---|---|---|
+| `STAGING_SUPABASE_URL` | `staging-admin` environment | `https://ltasgegihkapmdqlkaov.supabase.co` |
+| `STAGING_SUPABASE_SECRET_KEY` | `staging-admin` environment | Staging's secret key (**Project Settings → API Keys**) |
+| `STAGING_TEST_USER_PASSWORD` | `staging-admin` environment | The shared test password. The same value goes in the iOS repo's `Secrets.xcconfig` as `TEST_USER_PASSWORD` |
+| `STAGING_DATABASE_URL` | Repository | Already set for the sync (see above) |
+
+The `staging-admin` environment allows `main` only, like `production`.
 
 To run it locally instead, with staging's values in the environment: `python -m src.jobs.manage_test_users create --email test@fplsocial.dev`.
 
