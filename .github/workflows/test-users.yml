@@ -26,6 +26,10 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Only main can read this environment's secrets.
+    environment:
+      name: staging-admin
+      deployment: false
     # Shared with the staging sync and migration, so it never runs mid-migration.
     concurrency:
       group: staging-database
