@@ -10,7 +10,6 @@ Adapted from [andrej-karpathy-skills/CLAUDE.md](https://github.com/multica-ai/an
 2. **Simplicity first.** Write the smallest change that solves the stated problem. No speculative features, extra abstractions, or configuration nobody asked for.
 3. **Surgical changes.** Touch only what the task requires. Leave unrelated code, comments and formatting alone. Clean up only what your own change orphaned; point out other problems instead of fixing them unasked.
 4. **Goal-driven execution.** Turn each task into something you can verify, such as a test that fails before the fix and passes after. For multi-step work, give a short plan with a check for each step.
-5. **Minimal comments.** Keep code comments as short as possible, and never mention Linear issues (FPL-123) in them: the branch, commits and PR link the issue.
 
 ## Git conventions
 
