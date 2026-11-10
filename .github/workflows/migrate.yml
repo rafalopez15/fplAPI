@@ -27,8 +27,7 @@ jobs:
     concurrency:
       group: database
       cancel-in-progress: false
-    # Secrets from the production environment, which only main may use (FPL-105).
-    # No deployment record, as in the hourly sync.
+    # Only main can read this environment's secrets.
     environment:
       name: production
       deployment: false
@@ -43,7 +42,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     - name: Apply migrations
-      # The secret on this step only, so pip install never sees it.
+      # Secret on this step only, not pip install.
       env:
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
       run: |
@@ -67,7 +66,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     - name: Apply migrations
-      # The secret on this step only, so pip install never sees it.
+      # Secret on this step only, not pip install.
       env:
         DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
       run: |
