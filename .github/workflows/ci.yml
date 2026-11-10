@@ -177,7 +177,8 @@ jobs:
   report:
     name: PR comment
     # Runs after the other jobs even when they fail, so failures get reported.
-    if: always() && github.event_name == 'pull_request'
+    # Dependabot's runs get a read-only token, so they can't comment.
+    if: always() && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     needs: [lint, format, test]
     runs-on: ubuntu-latest
     permissions:
