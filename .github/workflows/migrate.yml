@@ -27,8 +27,11 @@ jobs:
     concurrency:
       group: database
       cancel-in-progress: false
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    # Secrets from the production environment, which only main may use (FPL-105).
+    # No deployment record, as in the hourly sync.
+    environment:
+      name: production
+      deployment: false
     steps:
     - uses: actions/checkout@v5
     - name: Set up Python 3.13
@@ -40,6 +43,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     - name: Apply migrations
+      # The secret on this step only, so pip install never sees it.
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
       run: |
         alembic upgrade head
         alembic current
@@ -50,8 +56,6 @@ jobs:
     concurrency:
       group: staging-database
       cancel-in-progress: false
-    env:
-      DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
     steps:
     - uses: actions/checkout@v5
     - name: Set up Python 3.13
@@ -63,9 +67,14 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     - name: Apply migrations
+      # The secret on this step only, so pip install never sees it.
+      env:
+        DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
       run: |
         alembic upgrade head
         alembic current
     # With this branch's code, so a new table it adds has data on the preview.
     - name: Sync
+      env:
+        DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
       run: python -m src.jobs.sync_bootstrap

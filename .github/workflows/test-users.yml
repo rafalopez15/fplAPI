@@ -26,6 +26,12 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Staging's Supabase secrets live in the staging-admin environment, which only
+    # main may use (FPL-105). STAGING_DATABASE_URL stays a repository secret, since
+    # migrate.yml's staging job needs it on pull requests.
+    environment:
+      name: staging-admin
+      deployment: false
     # Shared with the staging sync and migration, so it never runs mid-migration.
     concurrency:
       group: staging-database
