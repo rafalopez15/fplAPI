@@ -50,6 +50,8 @@ jobs:
         alembic current
 
   staging:
+    # Dependabot's runs can't read repository secrets.
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
