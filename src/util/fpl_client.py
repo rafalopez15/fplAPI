@@ -13,6 +13,8 @@ FIXTURES_URL = f"{FPL_BASE_URL}/fixtures/"
 ENTRY_URL = f"{FPL_BASE_URL}/entry/"
 # Every player's points in a gameweek: EVENT_URL + "{gw}/live/".
 EVENT_URL = f"{FPL_BASE_URL}/event/"
+# A classic league's standings: LEAGUE_STANDINGS_URL + "{id}/standings/".
+LEAGUE_STANDINGS_URL = f"{FPL_BASE_URL}/leagues-classic/"
 
 # Identifies us to FPL instead of the default "python-requests/x.y".
 HEADERS = {"User-Agent": "fplAPI/1.0 (+https://github.com/rafalopez15/fplAPI)"}
@@ -104,3 +106,14 @@ def fetch_event_live(event: int) -> dict:
     "elements" list for one that hasn't started.
     """
     return _get_live_json(f"{EVENT_URL}{event}/live/")
+
+
+def fetch_league_standings(league_id: int, page: int) -> dict:
+    """A classic league's standings, 50 teams a page.
+
+    FPL answers 404 (FplNotFoundError) for an unknown or head-to-head league, and
+    an empty page for one past the end.
+    """
+    return _get_live_json(
+        f"{LEAGUE_STANDINGS_URL}{league_id}/standings/?page_standings={page}"
+    )

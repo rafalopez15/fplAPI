@@ -22,3 +22,4 @@ ElementTypeId = Annotated[
 ]
 EventId = Annotated[int, _id_path("The gameweek")]
 ManagerId = Annotated[int, _id_path("The FPL manager (entry) id")]
+LeagueId = Annotated[int, _id_path("The FPL classic league id")]

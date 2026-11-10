@@ -8,6 +8,7 @@ from src.util.fpl_client import (
     BOOTSTRAP_STATIC_URL,
     ENTRY_URL,
     EVENT_URL,
+    LEAGUE_STANDINGS_URL,
     FIXTURES_URL,
     HEADERS,
     FplNotFoundError,
@@ -88,6 +89,7 @@ def test_fpl_urls_are_built_from_the_base_url():
     assert BOOTSTRAP_STATIC_URL == f"{FPL_BASE_URL}/bootstrap-static/"
     assert FIXTURES_URL == f"{FPL_BASE_URL}/fixtures/"
     assert ENTRY_URL == f"{FPL_BASE_URL}/entry/"
+    assert LEAGUE_STANDINGS_URL == f"{FPL_BASE_URL}/leagues-classic/"
 
 
 def test_requests_identify_fplapi():
@@ -124,6 +126,17 @@ def test_event_live_uses_the_proxy_timeout(monkeypatch):
     assert fpl_client.fetch_event_live(9) == {"elements": []}
     get.assert_called_once_with(
         EVENT_URL + "9/live/", timeout=FPL_PROXY_TIMEOUT, headers=HEADERS
+    )
+
+
+def test_league_standings_use_the_proxy_timeout(monkeypatch):
+    get = mock_get(monkeypatch, ok_response({"standings": {}}))
+
+    assert fpl_client.fetch_league_standings(5508, 2) == {"standings": {}}
+    get.assert_called_once_with(
+        LEAGUE_STANDINGS_URL + "5508/standings/?page_standings=2",
+        timeout=FPL_PROXY_TIMEOUT,
+        headers=HEADERS,
     )
 
 
