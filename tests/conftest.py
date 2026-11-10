@@ -297,7 +297,20 @@ def make_fpl_standing(entry, entry_name, rank, **overrides):
     }
 
 
-def make_fpl_league_standings(page=1, results=None, has_next=False):
+def make_fpl_new_entry(entry, entry_name, **overrides):
+    """One row of the standings response's new_entries, as FPL sends it."""
+    return {
+        "entry": entry,
+        "entry_name": entry_name,
+        "joined_time": "2026-11-09T17:41:02.123456Z",
+        # The manager's real name: FPL sends it, the API never passes it on.
+        "player_first_name": "Chris",
+        "player_last_name": "Musson",
+        **overrides,
+    }
+
+
+def make_fpl_league_standings(page=1, results=None, has_next=False, new_entries=()):
     """FPL's leagues-classic/{id}/standings/ response for a small league."""
     if results is None:
         results = [
@@ -316,7 +329,7 @@ def make_fpl_league_standings(page=1, results=None, has_next=False):
             "start_event": 1,
         },
         "standings": {"has_next": has_next, "page": page, "results": results},
-        "new_entries": {"has_next": False, "page": 1, "results": []},
+        "new_entries": {"has_next": False, "page": 1, "results": list(new_entries)},
         "last_updated_data": "2026-11-10T16:04:56Z",
     }
 

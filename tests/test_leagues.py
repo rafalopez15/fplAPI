@@ -12,7 +12,11 @@ from src.routers import leagues as leagues_router
 from src.services import leagues
 from src.util import fpl_client
 from src.util.fpl_client import FplNotFoundError, FplUnavailableError
-from tests.conftest import make_fpl_league_standings, make_fpl_standing
+from tests.conftest import (
+    make_fpl_league_standings,
+    make_fpl_new_entry,
+    make_fpl_standing,
+)
 
 
 @pytest.fixture
@@ -75,6 +79,8 @@ def test_get_league(api, fetch):
                 "event_total": 40,
             },
         ],
+        "new_entries": [],
+        "new_entries_has_next": False,
     }
     fetch.assert_called_once_with(5508, 1)
 
@@ -110,12 +116,78 @@ def test_missing_standing_fields_are_null(api, fetch):
     }
 
 
-@pytest.mark.usefixtures("fetch")
-def test_real_names_never_leave_the_api(api):
-    # FPL sends each manager's name as player_name (make_fpl_standing).
+def test_an_unreadable_row_is_skipped(api, fetch, caplog):
+    fetch.return_value = make_fpl_league_standings(
+        results=[
+            make_fpl_standing(7700093, None, 1),
+            make_fpl_standing(1, "Solio Moose", 2),
+        ]
+    )
+    response = api.get("/api/leagues/5508")
+    assert response.status_code == 200
+    assert [row["entry"] for row in response.json()["standings"]] == [1]
+    assert "Skipping unreadable standing 7700093" in caplog.text
+
+
+def test_a_missing_league_id_falls_back_to_the_path(api, fetch):
+    data = make_fpl_league_standings()
+    del data["league"]["id"]
+    fetch.return_value = data
+    response = api.get("/api/leagues/5508")
+    assert response.status_code == 200
+    assert response.json()["id"] == 5508
+
+
+@pytest.mark.parametrize("league", [None, {"id": 5508}, {"id": 5508, "name": ""}])
+def test_standings_without_a_league_name_return_503(api, fetch, league):
+    data = make_fpl_league_standings()
+    if league is None:
+        data = {}
+    else:
+        data["league"] = league
+    fetch.return_value = data
+    response = api.get("/api/leagues/5508")
+    assert response.status_code == 503
+    assert response.json() == {"detail": "FPL is unavailable right now"}
+
+
+def test_new_entries_are_returned(api, fetch):
+    data = make_fpl_league_standings(new_entries=[make_fpl_new_entry(8533420, "Kt")])
+    data["new_entries"]["has_next"] = True
+    fetch.return_value = data
+    body = api.get("/api/leagues/5508").json()
+    assert body["new_entries"] == [{"entry": 8533420, "entry_name": "Kt"}]
+    assert body["new_entries_has_next"] is True
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_no_new_entries_is_an_empty_list(api, fetch, missing):
+    data = make_fpl_league_standings()
+    if missing:
+        del data["new_entries"]
+    fetch.return_value = data
+    body = api.get("/api/leagues/5508").json()
+    assert (body["new_entries"], body["new_entries_has_next"]) == ([], False)
+
+
+def test_an_unreadable_new_entry_is_skipped(api, fetch):
+    fetch.return_value = make_fpl_league_standings(
+        new_entries=[make_fpl_new_entry(8533420, None), make_fpl_new_entry(93152, "V")]
+    )
+    body = api.get("/api/leagues/5508").json()
+    assert [row["entry"] for row in body["new_entries"]] == [93152]
+
+
+def test_real_names_never_leave_the_api(api, fetch):
+    # FPL sends each manager's name: player_name on standings, player_first_name
+    # and player_last_name on new entries.
+    fetch.return_value = make_fpl_league_standings(
+        new_entries=[make_fpl_new_entry(8533420, "Kt")]
+    )
     text = api.get("/api/leagues/5508").text
     assert "Chris" not in text and "Musson" not in text
     assert "player_name" not in text
+    assert "player_first_name" not in text and "player_last_name" not in text
 
 
 @pytest.mark.usefixtures("fetch")
