@@ -49,6 +49,8 @@ src/
     __init__.py          Combines the resource routers into a single `routers`
     params.py            Id path parameters (ElementId, EventId, ManagerId...): positive and
                          capped at Postgres's integer maximum, so a bad id is a 422, not a 500
+    live.py              Live: the dependency for routes that call FPL live; saves each answer
+                         and serves the saved one while FPL is down
     elements.py          /elements, /elements/{id}, /elements/position/{element_type}
     events.py            /events, /events/{id}, /events/current-event/, /events/{id}/live (live from FPL)
     teams.py             /teams, /teams/{team_name}
@@ -66,6 +68,7 @@ src/
     profiles.py          Accounts: ensure_profile() creates the row if it's missing
     user_teams.py        An account's FPL teams: list, add or switch (checks FPL), remove
     notes.py             Synced notes: newest updated_at wins, tombstones, the ?since= cursor
+    snapshots.py         The last good response of each live route (fpl_snapshots): save, load
   models/                Pydantic response models (ElementResponse, EventResponse, TeamResponse,
                          ProfileResponse, UserTeamResponse, NoteRequest, NoteResponse,
                          LeagueStandingsResponse)
@@ -90,7 +93,7 @@ Dockerfile               Image for running the API locally (Vercel doesn't use i
 
 **Request flow:** router → service → SQLAlchemy query on Postgres → Pydantic response model.
 
-The exceptions are `/managers/...`, `/leagues/{id}` and `/events/{id}/live`, which call FPL live through `fpl_client` (router → service → `fetch_*()` → FPL). Manager data is per user and there are too many leagues to store, so neither can be synced ahead of time, and live points change by the minute during matches. Vercel's CDN caches their successful responses (see Fetching), and they don't touch the database, so they work even when the sync is behind. The one exception is `/transfers`, which also reads stored gameweek points (see Net points per transfer); it takes a plain `get_session`, not `DataSession`, and returns null points if the database can't be read.
+The exceptions are `/managers/...`, `/leagues/{id}` and `/events/{id}/live`, which call FPL live through `fpl_client` (router → service → `fetch_*()` → FPL). Manager data is per user and there are too many leagues to store, so neither can be synced ahead of time, and live points change by the minute during matches. Vercel's CDN caches their successful responses (see Fetching). They don't depend on the sync, so they work even when it's behind: each takes `Live` (`src/routers/live.py`), which uses a plain `get_session`, not `DataSession`, only to save each answer to `fpl_snapshots` and to serve the saved one while FPL is down (see Snapshots). `/transfers` also reads stored gameweek points (see Net points per transfer), and returns null points if the database can't be read.
 
 **Account routes** (`/api/me...`, FPL-11) are the signed-in user's own data: router → `CurrentUser` (the token) → service → Postgres. They take a plain `get_session`, since accounts don't depend on the FPL sync, and every query filters by the user id from the token. See Accounts and sign-in.
 
@@ -129,7 +132,7 @@ The exceptions are `/managers/...`, `/leagues/{id}` and `/events/{id}/live`, whi
 - **Connection pool:** `DATABASE_POOL_SIZE` (default 3) and `DATABASE_MAX_OVERFLOW` (default 2). Keep them small: every Vercel instance has its own pool, and Supabase's free plan allows only a few server connections in total. Anything that connects through the session pooler holds one of its 15 slots for as long as the connection is open.
 - Never print or log `DATABASE_URL`: it contains the password.
 - `migrations/env.py` reads the URL from `config.py`, never from `alembic.ini`, and escapes `%` for configparser. If a URL is already set (as the tests do), it keeps that one.
-- **Schema** (design in the FPL-7 spike's "Spike outcome" comment in Linear): `teams`, `element_types`, `elements`, `events`, `fixtures` (every match of the season, from `/fixtures/`), `player_fixture_history` (one row per player per fixture, from `/element-summary/{id}/`; not filled yet, FPL-23), `element_event_points` (one row per player per finished gameweek: `total_points` and `minutes`, double gameweeks summed), `sync_runs`, and the account tables written by the API, `profiles`, `user_teams`, `notes`, `deleted_accounts` and `teams_tracked` (see Accounts and sign-in).
+- **Schema** (design in the FPL-7 spike's "Spike outcome" comment in Linear): `teams`, `element_types`, `elements`, `events`, `fixtures` (every match of the season, from `/fixtures/`), `player_fixture_history` (one row per player per fixture, from `/element-summary/{id}/`; not filled yet, FPL-23), `element_event_points` (one row per player per finished gameweek: `total_points` and `minutes`, double gameweeks summed), `sync_runs`, the account tables written by the API, `profiles`, `user_teams`, `notes`, `deleted_accounts` and `teams_tracked` (see Accounts and sign-in), and `fpl_snapshots`, also written by the API (see Snapshots).
   - `fixtures.started` is true from kickoff. FPL only sets `finished` once the gameweek's bonus points are confirmed, a day or more after the match, so "still to be played" means `started = false`.
   - Column names are FPL's field names, so rows map 1:1 onto the Pydantic models. `elements` columns match `ElementResponse`, including which are `NOT NULL`.
   - In the FPL tables, ids are FPL's, never generated (`autoincrement=False`). Decimals are `numeric`, timestamps are `timestamptz`.
@@ -151,6 +154,13 @@ The exceptions are `/managers/...`, `/leagues/{id}` and `/events/{id}/live`, whi
   - In Wildcard and Free Hit weeks FPL's list records every swap tried (55 rows for one Free Hit), so each gameweek is reduced to its real changes: players bought more often than sold, and sold more often than bought. Rows pairing a real in with a real out are real transfers; the rest are `is_churn`. Real changes no row pairs are paired by position (earliest bought with earliest sold) and returned as rows the API builds, with the incoming player's buy `time`.
   - A transfer for gameweek N covers N until the gameweek before the player is sold again, or the latest stored gameweek. A Free Hit transfer covers its gameweek only and doesn't end an earlier one. Points are null for churn, before N is stored, and when the database can't be read. Pairing needs positions from the database too, so without it a gameweek with unpaired changes isn't flagged as churn at all: the app shows FPL's rows for that week, rather than hiding real changes.
 - **Caching:** the live routes set `Cache-Control: s-maxage=..., stale-while-revalidate=...` on successful responses, so Vercel's CDN serves repeats without calling FPL: 60s for the manager, transfers, picks and live points, 300s for history and league standings. Errors send `no-store`. An in-memory cache would be useless on Vercel, whose instances don't share memory and scale to zero.
+- **Snapshots** (FPL-76): FPL takes its API down for an hour or more after each deadline while the game updates, longer than the CDN's `stale-while-revalidate` covers. So every live route (`/managers/...`, `/leagues/{id}`, `/events/{id}/live`) goes through `Live.call()`, which upserts each successful response into `fpl_snapshots`, one row per key (`managers/1/picks/9`, `managers/1/picks/current` without `?event=`, `leagues/5508/2`...). On `FplUnavailableError` it returns the saved copy as a 200 with `X-Data-Stale-As-Of` (its `fetched_at`, ISO 8601) and `Cache-Control: s-maxage=30`, so fresh data returns soon after FPL does; without one, the 503 from `main.py`. Clients can show "FPL is updating · showing data as of 13:28".
+  - What's saved is the response model's output, never FPL's raw JSON, so real names can't reach the table (`tests/test_snapshots.py` checks every route).
+  - 404s (`FplNotFoundError`) are never served from a snapshot. `/transfers` makes two FPL calls; either failing serves the whole saved copy. Picks before the first deadline (404) aren't saved.
+  - A snapshot is validated against the current model when loaded; one that no longer fits (a model gained a required field) is skipped, giving the 503.
+  - Saving and loading never fail the request: a database error is logged, the fresh answer still returns, and a failed load is a 503. The write commits after the FPL calls, so no transaction is held across one. If the database is down, each live response waits up to `DATABASE_CONNECT_TIMEOUT` for the failed write.
+  - A new live route takes `live: Live` and returns `live.call(key, model, cache, fetch)`. A web client needs `X-Data-Stale-As-Of` in CORS's `Access-Control-Expose-Headers` (FPL-69).
+  - Rows are never purged: one per manager per route, plus one per gameweek for picks and live points.
 
 ### Managers' real names
 - **They never leave the API** (product rule from FPL-11, done in FPL-45). FPL sends a manager's first and last name with their team, but FPL Social puts anonymous usernames and public comments next to teams, and a real name there makes harassment easy. Teams are shown by team name only. `player_region_name` (a country) stays.
@@ -182,7 +192,7 @@ Use these status codes consistently:
 | Situation | Status |
 |---|---|
 | No bootstrap sync has succeeded yet (`FplDataUnavailableError`), or the database is unreachable (`OperationalError`) | **503** `"FPL data is currently unavailable"`, from the handlers in `main.py` |
-| A live call to FPL fails (`FplUnavailableError`) | **503** `"FPL is unavailable right now"`, with `Cache-Control: no-store` |
+| A live call to FPL fails (`FplUnavailableError`) | **200** with the last saved copy, `X-Data-Stale-As-Of` and `Cache-Control: s-maxage=30` (see Snapshots); with none saved, **503** `"FPL is unavailable right now"`, with `Cache-Control: no-store` |
 | Single-item lookup or filter finds nothing | **404** with a resource-specific detail, e.g. `"Team not found"`. Unknown FPL managers: `"Manager not found"`, gameweeks FPL doesn't have on `/live`: `"Event not found"`, and unknown or head-to-head leagues: `"League not found"`, all with `no-store` |
 | Collection endpoint with no items | **200** with `[]` |
 | Invalid path parameter: not an integer, 0 or less, or over Postgres's `integer` maximum (see `src/routers/params.py`) | **422** (FastAPI default) |
