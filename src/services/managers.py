@@ -91,6 +91,8 @@ def get_transfers(manager_id: int, session: Session) -> List[TransferResponse]:
     try:
         data = transfer_points.load_points(session, players)
     except SQLAlchemyError as exc:
+        # The route saves the response with this session afterwards.
+        session.rollback()
         logger.warning("Transfer points unavailable: %s", exc)
         data = None
     rows = transfer_points.with_net_points(transfers, free_hits, data)

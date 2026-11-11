@@ -7,7 +7,7 @@ from src.models.manager import (
     PicksResponse,
     TransferResponse,
 )
-from src.routers.live import Live
+from src.routers.live import Live, LiveRoute
 from src.routers.params import ManagerId
 from src.services import managers
 from src.util.database import get_session
@@ -23,6 +23,11 @@ TRANSFERS_CACHE = "s-maxage=60, stale-while-revalidate=60"
 HISTORY_CACHE = "s-maxage=300, stale-while-revalidate=600"
 PICKS_CACHE = "s-maxage=60, stale-while-revalidate=300"
 NO_STORE = {"Cache-Control": "no-store"}
+
+MANAGER = LiveRoute(ManagerResponse, MANAGER_CACHE)
+TRANSFERS = LiveRoute(List[TransferResponse], TRANSFERS_CACHE)
+HISTORY = LiveRoute(HistoryResponse, HISTORY_CACHE)
+PICKS = LiveRoute(PicksResponse, PICKS_CACHE)
 
 
 def manager_not_found() -> HTTPException:
@@ -41,8 +46,7 @@ def get_manager(manager_id: ManagerId, live: Live) -> ManagerResponse:
     try:
         return live.call(
             f"managers/{manager_id}",
-            ManagerResponse,
-            MANAGER_CACHE,
+            MANAGER,
             lambda: managers.get_manager(manager_id),
         )
     except FplNotFoundError as exc:
@@ -66,8 +70,7 @@ def get_transfers(
     try:
         return live.call(
             f"managers/{manager_id}/transfers",
-            List[TransferResponse],
-            TRANSFERS_CACHE,
+            TRANSFERS,
             lambda: managers.get_transfers(manager_id, session),
         )
     except FplNotFoundError as exc:
@@ -84,8 +87,7 @@ def get_history(manager_id: ManagerId, live: Live) -> HistoryResponse:
     try:
         return live.call(
             f"managers/{manager_id}/history",
-            HistoryResponse,
-            HISTORY_CACHE,
+            HISTORY,
             lambda: managers.get_history(manager_id),
         )
     except FplNotFoundError as exc:
@@ -110,8 +112,7 @@ def get_picks(
     try:
         result = live.call(
             f"managers/{manager_id}/picks/{event or 'current'}",
-            PicksResponse,
-            PICKS_CACHE,
+            PICKS,
             lambda: managers.get_picks(manager_id, event),
         )
     except FplNotFoundError as exc:

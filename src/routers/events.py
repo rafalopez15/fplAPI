@@ -1,7 +1,7 @@
 from typing import List
 from fastapi import APIRouter, HTTPException
 from src.models.event import EventResponse, LiveElementResponse
-from src.routers.live import Live
+from src.routers.live import Live, LiveRoute
 from src.routers.params import EventId
 from src.services import events
 from src.util.database import DataSession
@@ -12,6 +12,9 @@ events_router = APIRouter()
 # Live points change by the minute during matches. Vercel's CDN serves a cached
 # copy for up to s-maxage seconds, then one stale copy while it refreshes.
 LIVE_CACHE = "s-maxage=60, stale-while-revalidate=60"
+
+# A gameweek that hasn't started is [], not worth saving.
+LIVE = LiveRoute(List[LiveElementResponse], LIVE_CACHE, keep=bool)
 
 
 @events_router.get("/events")
@@ -53,8 +56,7 @@ def get_live(event_id: EventId, live: Live) -> List[LiveElementResponse]:
     try:
         return live.call(
             f"events/{event_id}/live",
-            List[LiveElementResponse],
-            LIVE_CACHE,
+            LIVE,
             lambda: events.get_live(event_id),
         )
     except FplNotFoundError as exc:

@@ -9,13 +9,13 @@ from typing import List
 from unittest.mock import Mock
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
 from src.db.models import FplSnapshot
 from src.models.event import LiveElementResponse
 from src.models.manager import HistoryResponse
 from src.routers.live import STALE_CACHE
-from src.services import snapshots
+from src.services import snapshots, transfer_points
 from src.util import fpl_client
 from src.util.fpl_client import FplNotFoundError, FplUnavailableError
 from tests.conftest import (
@@ -36,7 +36,7 @@ ROUTES = [
     ("/api/managers/1/picks?event=9", "fetch_manager_picks", "managers/1/picks/9"),
     ("/api/managers/1/picks", "fetch_manager", "managers/1/picks/current"),
     ("/api/events/9/live", "fetch_event_live", "events/9/live"),
-    ("/api/leagues/5508?page=2", "fetch_league_standings", "leagues/5508/2"),
+    ("/api/leagues/5508", "fetch_league_standings", "leagues/5508/1"),
 ]
 
 
@@ -180,6 +180,53 @@ def test_transfers_fall_back_whole_when_only_history_fails(client, fpl):
     assert stale.status_code == 200
     assert stale.json() == fresh.json()
     assert "x-data-stale-as-of" in stale.headers
+
+
+def test_transfers_are_saved_when_the_points_cant_be_read(
+    client, seeded_session, fpl, monkeypatch
+):
+    # A failed query leaves the shared session's transaction aborted; the save
+    # must still go through, with null points.
+    def failing(session, _players):
+        session.execute(text("SELECT 1 / 0"))
+
+    monkeypatch.setattr(transfer_points, "load_points", failing)
+    assert client.get("/api/managers/1/transfers").status_code == 200
+    fpl["fetch_manager_transfers"].side_effect = FplUnavailableError("updating")
+    stale = client.get("/api/managers/1/transfers")
+    assert stale.status_code == 200
+    assert all(row["net_points"] is None for row in stale.json())
+
+
+def test_only_a_leagues_first_page_is_saved(client, seeded_session, fpl):
+    fpl["fetch_league_standings"].return_value = make_fpl_league_standings(page=2)
+    assert client.get("/api/leagues/5508?page=2").status_code == 200
+    assert not saved_keys(seeded_session)
+    fpl["fetch_league_standings"].side_effect = FplUnavailableError("updating")
+    assert client.get("/api/leagues/5508?page=2").status_code == 503
+
+
+def test_an_empty_league_page_is_not_saved(client, seeded_session, fpl):
+    fpl["fetch_league_standings"].return_value = make_fpl_league_standings(results=[])
+    assert client.get("/api/leagues/5508").status_code == 200
+    assert not saved_keys(seeded_session)
+
+
+def test_a_new_league_with_only_new_entries_is_saved(client, seeded_session, fpl):
+    # Teams that just joined aren't in the standings until the next update.
+    fpl["fetch_league_standings"].return_value = make_fpl_league_standings(
+        results=[], new_entries=[make_fpl_new_entry(8533420, "Kt")]
+    )
+    client.get("/api/leagues/5508")
+    assert saved_keys(seeded_session) == {"leagues/5508/1"}
+
+
+def test_live_points_before_a_gameweek_starts_are_not_saved(
+    client, seeded_session, fpl
+):
+    fpl["fetch_event_live"].return_value = {"elements": []}
+    assert client.get("/api/events/11/live").json() == []
+    assert not saved_keys(seeded_session)
 
 
 def test_picks_before_the_first_deadline_are_not_saved(client, seeded_session, fpl):
