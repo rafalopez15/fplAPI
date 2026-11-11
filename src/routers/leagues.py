@@ -1,6 +1,7 @@
 from typing import Annotated
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, HTTPException, Query
 from src.models.league import LeagueStandingsResponse
+from src.routers.live import Live
 from src.routers.params import LeagueId, POSTGRES_INT_MAX
 from src.services import leagues
 from src.util.fpl_client import FplNotFoundError
@@ -14,7 +15,7 @@ LEAGUE_CACHE = "s-maxage=300, stale-while-revalidate=600"
 @leagues_router.get("/leagues/{league_id}")
 def get_league(
     league_id: LeagueId,
-    response: Response,
+    live: Live,
     page: Annotated[
         int, Query(gt=0, le=POSTGRES_INT_MAX, description="The page, 50 teams each")
     ] = 1,
@@ -23,15 +24,19 @@ def get_league(
     names.
 
     A page past the end has no standings. Returns 404 if FPL has no such classic
-    league (head-to-head ones included), and 503 if FPL can't be reached.
+    league (head-to-head ones included). If FPL can't be reached, returns the last
+    copy saved, with X-Data-Stale-As-Of, or 503 without one.
     """
     try:
-        result = leagues.get_standings(league_id, page)
+        return live.call(
+            f"leagues/{league_id}/{page}",
+            LeagueStandingsResponse,
+            LEAGUE_CACHE,
+            lambda: leagues.get_standings(league_id, page),
+        )
     except FplNotFoundError as exc:
         raise HTTPException(
             status_code=404,
             detail="League not found",
             headers={"Cache-Control": "no-store"},
         ) from exc
-    response.headers["Cache-Control"] = LEAGUE_CACHE
-    return result

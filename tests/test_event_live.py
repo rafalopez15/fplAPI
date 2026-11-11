@@ -5,8 +5,6 @@
 from unittest.mock import Mock
 
 import pytest
-from fastapi.testclient import TestClient
-from main import app
 from src.models.event import LiveElementResponse
 from src.routers import events as events_router
 from src.services import events
@@ -16,9 +14,9 @@ from tests.conftest import make_fpl_event_live
 
 
 @pytest.fixture
-def api():
-    # The endpoint doesn't touch the database, so no seeded session is needed.
-    return TestClient(app)
+def api(client):
+    # The route saves FPL's answer, and serves it while FPL is down.
+    return client
 
 
 @pytest.fixture

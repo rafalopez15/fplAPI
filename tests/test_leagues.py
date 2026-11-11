@@ -5,8 +5,6 @@
 from unittest.mock import Mock
 
 import pytest
-from fastapi.testclient import TestClient
-from main import app
 from src.models.league import LeagueStandingsResponse
 from src.routers import leagues as leagues_router
 from src.services import leagues
@@ -20,9 +18,9 @@ from tests.conftest import (
 
 
 @pytest.fixture
-def api():
-    # The endpoint doesn't touch the database, so no seeded session is needed.
-    return TestClient(app)
+def api(client):
+    # The route saves FPL's answer, and serves it while FPL is down.
+    return client
 
 
 @pytest.fixture

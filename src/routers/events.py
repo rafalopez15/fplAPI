@@ -1,6 +1,7 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException
 from src.models.event import EventResponse, LiveElementResponse
+from src.routers.live import Live
 from src.routers.params import EventId
 from src.services import events
 from src.util.database import DataSession
@@ -41,20 +42,24 @@ def get_current_event(session: DataSession) -> EventResponse:
 
 
 @events_router.get("/events/{event_id}/live")
-def get_live(event_id: EventId, response: Response) -> List[LiveElementResponse]:
+def get_live(event_id: EventId, live: Live) -> List[LiveElementResponse]:
     """List every player's points and minutes in a gameweek, updated during matches.
 
     Calls FPL live, so it works even when the hourly sync is behind. Returns [] for
-    a gameweek that hasn't started, 404 if FPL has no such gameweek, and 503 if FPL
-    can't be reached.
+    a gameweek that hasn't started, and 404 if FPL has no such gameweek. If FPL
+    can't be reached, returns the last copy saved, with X-Data-Stale-As-Of, or 503
+    without one.
     """
     try:
-        result = events.get_live(event_id)
+        return live.call(
+            f"events/{event_id}/live",
+            List[LiveElementResponse],
+            LIVE_CACHE,
+            lambda: events.get_live(event_id),
+        )
     except FplNotFoundError as exc:
         raise HTTPException(
             status_code=404,
             detail="Event not found",
             headers={"Cache-Control": "no-store"},
         ) from exc
-    response.headers["Cache-Control"] = LIVE_CACHE
-    return result
