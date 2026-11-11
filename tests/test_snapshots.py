@@ -182,9 +182,7 @@ def test_transfers_fall_back_whole_when_only_history_fails(client, fpl):
     assert "x-data-stale-as-of" in stale.headers
 
 
-def test_transfers_are_saved_when_the_points_cant_be_read(
-    client, seeded_session, fpl, monkeypatch
-):
+def test_transfers_are_saved_when_the_points_cant_be_read(client, fpl, monkeypatch):
     # A failed query leaves the shared session's transaction aborted; the save
     # must still go through, with null points.
     def failing(session, _players):
