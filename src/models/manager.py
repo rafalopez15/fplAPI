@@ -14,7 +14,7 @@ class League(BaseModel):
 
     kind is "invitational" for a league someone created (FPL's league_type "x"),
     "system" for one FPL puts teams in (Overall, country, club, "s"). size is FPL's
-    rank_count. id is what GET /api/leagues/{id} will take (FPL-96).
+    rank_count. id is what GET /api/leagues/{id} takes.
     """
 
     id: int

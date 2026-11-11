@@ -278,6 +278,62 @@ def make_fpl_manager(**overrides):
     return manager
 
 
+def make_fpl_standing(entry, entry_name, rank, **overrides):
+    """One row of leagues-classic/{id}/standings/, as FPL sends it."""
+    return {
+        "id": entry * 10,
+        "event_total": 40,
+        # The manager's real name: FPL sends it, the API never passes it on.
+        "player_name": "Chris Musson",
+        "rank": rank,
+        "last_rank": rank + 1,
+        "rank_sort": rank,
+        "total": 700 - rank,
+        "entry": entry,
+        "entry_name": entry_name,
+        "has_played": True,
+        "club_badge_src": None,
+        **overrides,
+    }
+
+
+def make_fpl_new_entry(entry, entry_name, **overrides):
+    """One row of the standings response's new_entries, as FPL sends it."""
+    return {
+        "entry": entry,
+        "entry_name": entry_name,
+        "joined_time": "2026-11-09T17:41:02.123456Z",
+        # The manager's real name: FPL sends it, the API never passes it on.
+        "player_first_name": "Chris",
+        "player_last_name": "Musson",
+        **overrides,
+    }
+
+
+def make_fpl_league_standings(page=1, results=None, has_next=False, new_entries=()):
+    """FPL's leagues-classic/{id}/standings/ response for a small league."""
+    if results is None:
+        results = [
+            make_fpl_standing(7700093, "Amos's Team", 1),
+            make_fpl_standing(1, "Solio Moose", 2),
+        ]
+    return {
+        "league": {
+            "id": 5508,
+            "name": "FPLDev",
+            "league_type": "x",
+            "scoring": "c",
+            "admin_entry": 1,
+            "closed": False,
+            "created": "2026-07-23T12:22:35.290564Z",
+            "start_event": 1,
+        },
+        "standings": {"has_next": has_next, "page": page, "results": results},
+        "new_entries": {"has_next": False, "page": 1, "results": list(new_entries)},
+        "last_updated_data": "2026-11-10T16:04:56Z",
+    }
+
+
 def make_fpl_transfers():
     """FPL's entry/{id}/transfers/ response: newest first, with fractional seconds."""
     return [
