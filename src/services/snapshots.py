@@ -2,21 +2,26 @@
 while FPL is down, e.g. for the hour or more after a deadline while the game updates.
 
 Snapshots are stored as the API returned them, after the response models have left
-out what never leaves the API. Neither function raises for a database error: a
+out what never leaves the API. save and load never raise for a database error: a
 failed save just means no snapshot, and a failed load means a 503, as without one.
+The hourly sync purges old ones.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional, Tuple
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import func
+from sqlalchemy import delete, func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from src.db.models import FplSnapshot
 
 logger = logging.getLogger(__name__)
+
+# A snapshot is refreshed whenever its route reaches FPL, so one this old belongs
+# to a team or league nobody has looked at since.
+MAX_AGE = timedelta(days=30)
 
 
 def save(session: Session, key: str, result: Any, kind: Any) -> None:
@@ -53,3 +58,11 @@ def load(session: Session, key: str, kind: Any) -> Optional[Tuple[Any, datetime]
     except ValidationError as exc:
         logger.warning("Snapshot %s no longer fits its model: %s", key, exc)
         return None
+
+
+def purge(session: Session) -> int:
+    """Delete snapshots older than MAX_AGE. Returns how many."""
+    result = session.execute(
+        delete(FplSnapshot).where(FplSnapshot.fetched_at < func.now() - MAX_AGE)
+    )
+    return result.rowcount

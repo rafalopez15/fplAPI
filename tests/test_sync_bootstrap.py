@@ -1,6 +1,7 @@
 # pytest fixtures are injected as same-named arguments.
 # pylint: disable=redefined-outer-name
 import logging
+from datetime import timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -15,6 +16,7 @@ from src.db.models import (
     ElementEventPoints,
     Event,
     Fixture,
+    FplSnapshot,
     Profile,
     SyncRun,
     Team,
@@ -528,14 +530,58 @@ def test_no_teams_on_accounts_makes_no_calls(engine):
     assert not fetch.calls
 
 
+# --- purging snapshots -----------------------------------------------------
+
+
+def add_snapshot(engine, key, days_old):
+    with Session(engine) as session, session.begin():
+        fetched_at = session.scalar(select(func.now())) - timedelta(days=days_old)
+        session.add(FplSnapshot(key=key, body={}, fetched_at=fetched_at))
+
+
+def snapshot_keys(engine):
+    with Session(engine) as session:
+        return set(session.scalars(select(FplSnapshot.key)))
+
+
+def test_snapshots_older_than_a_month_are_purged(engine, caplog):
+    add_snapshot(engine, "managers/1", days_old=31)
+    add_snapshot(engine, "managers/2", days_old=29)
+    with caplog.at_level(logging.INFO):
+        assert job.purge_snapshots(engine) is True
+    assert snapshot_keys(engine) == {"managers/2"}
+    assert "Deleted 1 old snapshot(s)" in caplog.text
+
+
+def test_nothing_to_purge(engine):
+    add_snapshot(engine, "managers/1", days_old=0)
+    assert job.purge_snapshots(engine) is True
+    assert snapshot_keys(engine) == {"managers/1"}
+
+
+def test_a_failed_purge_is_logged(engine, monkeypatch, caplog):
+    def unreachable(_session):
+        raise OperationalError("DELETE", {}, Exception("connection refused"))
+
+    monkeypatch.setattr(job.snapshots, "purge", unreachable)
+    with caplog.at_level(logging.ERROR):
+        assert job.purge_snapshots(engine) is False
+    assert "Snapshot purge failed: connection refused" in caplog.text
+
+
 # --- main ------------------------------------------------------------------
 
 
 @pytest.fixture
 def steps(monkeypatch):
-    """main()'s three steps, each succeeding unless a test changes it."""
+    """main()'s four steps, each succeeding unless a test changes it."""
     ran = []
-    for name in ("sync_bootstrap", "sync_event_points", "sync_team_names"):
+    for name in (
+        "sync_bootstrap",
+        "sync_event_points",
+        "sync_team_names",
+        "purge_snapshots",
+    ):
         monkeypatch.setattr(job, name, lambda name=name: ran.append(name) or True)
     return ran
 
@@ -548,6 +594,7 @@ def steps(monkeypatch):
         ("sync_bootstrap", 1),
         ("sync_event_points", 1),
         ("sync_team_names", 1),
+        ("purge_snapshots", 1),
     ],
 )
 def test_main_exit_code(monkeypatch, failing, exit_code):
@@ -559,7 +606,7 @@ def test_main_exit_code(monkeypatch, failing, exit_code):
 def test_main_runs_every_step_even_when_bootstrap_fails(monkeypatch, steps):
     monkeypatch.setattr(job, "sync_bootstrap", lambda: False)
     job.main()
-    assert steps == ["sync_event_points", "sync_team_names"]
+    assert steps == ["sync_event_points", "sync_team_names", "purge_snapshots"]
 
 
 def test_main_fails_when_the_run_cant_be_recorded(monkeypatch, caplog):

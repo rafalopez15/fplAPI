@@ -10,7 +10,8 @@ recorded in sync_runs.
 
 Then stores each newly finished gameweek's points per player (element_event_points),
 one gameweek per transaction, so a failure there doesn't undo the bootstrap data.
-Last, it fetches the names of teams on accounts that teams_tracked doesn't have.
+Then it fetches the names of teams on accounts that teams_tracked doesn't have. Last,
+it deletes snapshots of live FPL routes nobody has loaded for a month.
 """
 
 import logging
@@ -33,6 +34,7 @@ from src.db.models import (
     TrackedTeam,
     UserTeam,
 )
+from src.services import snapshots
 from src.services.user_teams import remember_team
 from src.util import database
 from src.util.fpl_client import (
@@ -264,6 +266,21 @@ def sync_team_names(
     return True
 
 
+def purge_snapshots(engine: Optional[Engine] = None) -> bool:
+    """Delete the live routes' snapshots older than snapshots.MAX_AGE, so the table
+    only holds teams and leagues people still look at. Returns whether it worked."""
+    engine = engine or database.engine
+    try:
+        with Session(engine) as session, session.begin():
+            deleted = snapshots.purge(session)
+    except SQLAlchemyError as exc:
+        logger.error("Snapshot purge failed: %s", describe(exc))
+        return False
+    if deleted:
+        logger.info("Deleted %s old snapshot(s)", deleted)
+    return True
+
+
 def main() -> int:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -274,6 +291,7 @@ def main() -> int:
         succeeded = sync_bootstrap()
         succeeded = sync_event_points() and succeeded
         succeeded = sync_team_names() and succeeded
+        succeeded = purge_snapshots() and succeeded
     except SQLAlchemyError as exc:
         logger.error("Could not record the sync run: %s", describe(exc))
         return 1
