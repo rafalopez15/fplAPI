@@ -382,3 +382,19 @@ class DeletedAccount(Base):
 
     user_id: Mapped[UUID] = mapped_column(primary_key=True)
     deleted_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class FplSnapshot(Base):
+    """The last good response of a route that calls FPL live, served while FPL is
+    down.
+
+    key names the route and its parameters, e.g. "managers/1/picks/current". body is
+    the response the API returned, so it never holds what the API leaves out, like
+    managers' real names. Written by the API, one row per key.
+    """
+
+    __tablename__ = "fpl_snapshots"
+
+    key: Mapped[str] = mapped_column(primary_key=True)
+    body: Mapped[Any] = mapped_column(JSONB)
+    fetched_at: Mapped[datetime]
