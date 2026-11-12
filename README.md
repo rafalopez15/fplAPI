@@ -299,3 +299,11 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 Apart from the test database, the tests need no network access, and they use dummy values for the other settings. CI runs all three on every pull request and on pushes to `main`, with its own Postgres container, and posts the results as a comment on the PR. The comment is updated on each push.
 
 The comment's **Coverage** section shows the total (✅ at or above the 95% gate in `pytest.ini`), the change against `main`, and each changed file under `src/` or `main.py` that has untested lines, with the line numbers. The comparison uses `coverage.xml` from `main`'s latest successful CI run, which each push to `main` saves for 90 days. If there isn't one, the section says so. The gate itself is unchanged: CI still fails under 95%.
+
+### Secret scanning
+The **Secret scan** workflow runs [gitleaks](https://github.com/gitleaks/gitleaks) over the full history on every pull request and push to `main`, with the rules in `.gitleaks.toml`. To run it yourself before pushing:
+```bash
+brew install gitleaks
+gitleaks git --redact .          # the history, as CI scans it
+```
+If it finds a real secret, rotate it first (the repo is public), then remove it. CLAUDE.md covers allowlisting a false positive.
