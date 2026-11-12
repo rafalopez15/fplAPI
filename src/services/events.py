@@ -41,19 +41,22 @@ def get_live(event_id: int) -> List[LiveElementResponse]:
     ]
 
 
-def get_fixtures(event_id: int) -> List[LiveFixtureResponse]:
+def get_fixtures(session: Session, event_id: int) -> List[LiveFixtureResponse]:
     """Return a gameweek's matches by kickoff, with live scores and minutes.
 
-    Calls FPL live, like get_live. Every gameweek has matches, so FPL's empty list
-    (its answer for a gameweek it doesn't have) raises FplNotFoundError. A match
-    we can't read is left out rather than failing the list, and an answer that
-    isn't a list raises FplUnavailableError.
+    Calls FPL live, like get_live. FPL answers [] for a gameweek it doesn't have,
+    and for one with every match postponed, so [] is only returned for a stored
+    gameweek; otherwise it raises FplNotFoundError. A match we can't read is left
+    out rather than failing the list, and an answer that isn't a list raises
+    FplUnavailableError.
     """
     rows = fpl_client.fetch_event_fixtures(event_id)
     if not isinstance(rows, list):
         raise fpl_client.FplUnavailableError("FPL sent fixtures that aren't a list")
     if not rows:
-        raise fpl_client.FplNotFoundError(f"FPL has no fixtures for event {event_id}")
+        if session.get(Event, event_id) is None:
+            raise fpl_client.FplNotFoundError(f"No event {event_id}")
+        return []
     fixtures = readable(rows, LiveFixtureResponse, "fixture", "id")
     return sorted(
         fixtures,

@@ -54,8 +54,8 @@ def fetch(monkeypatch):
 # --- service -----------------------------------------------------------------
 
 
-def test_get_fixtures_service(fetch):
-    result = events.get_fixtures(10)
+def test_get_fixtures_service(fetch, seeded_session):
+    result = events.get_fixtures(seeded_session, 10)
     fetch.assert_called_once_with(10)
     assert all(isinstance(item, LiveFixtureResponse) for item in result)
     assert [(f.id, f.minutes, f.finished_provisional) for f in result] == [
@@ -65,29 +65,39 @@ def test_get_fixtures_service(fetch):
     ]
 
 
-def test_get_fixtures_service_orders_by_kickoff(fetch):
+def test_get_fixtures_service_orders_by_kickoff(fetch, seeded_session):
     fetch.return_value = [
         make_fixture(id=95, kickoff_time=None),
         make_fixture(id=94, kickoff_time="2026-11-08T14:00:00Z"),
         make_fixture(id=93, kickoff_time="2026-11-07T15:00:00Z"),
         make_fixture(id=92, kickoff_time="2026-11-07T15:00:00Z"),
     ]
-    assert [f.id for f in events.get_fixtures(10)] == [92, 93, 94, 95]
+    assert [f.id for f in events.get_fixtures(seeded_session, 10)] == [92, 93, 94, 95]
 
 
-def test_get_fixtures_service_handles_missing_live_fields(fetch):
+def test_get_fixtures_service_handles_missing_live_fields(fetch, seeded_session):
     row = make_fixture()
     del row["minutes"], row["finished_provisional"]
     fetch.return_value = [row]
-    fixture = events.get_fixtures(10)[0]
+    fixture = events.get_fixtures(seeded_session, 10)[0]
     assert (fixture.minutes, fixture.finished_provisional) == (0, False)
 
 
-def test_get_fixtures_service_raises_not_found_for_an_empty_list(fetch):
+def test_get_fixtures_service_raises_not_found_for_an_unknown_gameweek(
+    fetch, seeded_session
+):
     # FPL's answer for a gameweek it doesn't have.
     fetch.return_value = []
     with pytest.raises(FplNotFoundError):
-        events.get_fixtures(39)
+        events.get_fixtures(seeded_session, 39)
+
+
+def test_get_fixtures_service_returns_empty_for_a_stored_gameweek(
+    fetch, seeded_session
+):
+    # Every match postponed, like gameweek 7 in September 2022.
+    fetch.return_value = []
+    assert not events.get_fixtures(seeded_session, 9)
 
 
 # --- route -------------------------------------------------------------------
@@ -131,9 +141,18 @@ def test_fixtures_that_arent_a_list_return_503(api, fetch):
     assert response.json() == {"detail": "FPL is unavailable right now"}
 
 
+def test_a_gameweek_with_no_matches_returns_an_empty_list(api, fetch):
+    fetch.return_value = []
+    response = api.get("/api/events/9/fixtures")
+    assert response.status_code == 200
+    assert not response.json()
+    assert response.headers["cache-control"] == events_router.LIVE_CACHE
+
+
 @pytest.mark.parametrize("error", [None, FplNotFoundError("nope")])
 def test_get_fixtures_unknown_gameweek_returns_404(api, fetch, error):
-    # FPL answers [] for a gameweek it doesn't have; a 404 is handled the same.
+    # FPL answers [] for a gameweek it doesn't have (39 isn't stored); a 404 is
+    # handled the same.
     fetch.return_value = []
     fetch.side_effect = error
     response = api.get("/api/events/39/fixtures")

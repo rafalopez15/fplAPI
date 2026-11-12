@@ -1,11 +1,12 @@
-from typing import List
-from fastapi import APIRouter, HTTPException
+from typing import Annotated, List
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 from src.models.event import EventResponse, LiveElementResponse
 from src.models.fixture import LiveFixtureResponse
 from src.routers.live import Live, LiveRoute
 from src.routers.params import EventId
 from src.services import events
-from src.util.database import DataSession
+from src.util.database import DataSession, get_session
 from src.util.fpl_client import FplNotFoundError
 
 events_router = APIRouter()
@@ -16,7 +17,7 @@ LIVE_CACHE = "s-maxage=60, stale-while-revalidate=60"
 
 # A gameweek that hasn't started is [], not worth saving.
 LIVE = LiveRoute(List[LiveElementResponse], LIVE_CACHE, keep=bool)
-# [] only if no match could be read.
+# [] for a gameweek with every match postponed, or none readable.
 FIXTURES = LiveRoute(List[LiveFixtureResponse], LIVE_CACHE, keep=bool)
 
 
@@ -71,19 +72,24 @@ def get_live(event_id: EventId, live: Live) -> List[LiveElementResponse]:
 
 
 @events_router.get("/events/{event_id}/fixtures")
-def get_fixtures(event_id: EventId, live: Live) -> List[LiveFixtureResponse]:
+def get_fixtures(
+    event_id: EventId,
+    live: Live,
+    session: Annotated[Session, Depends(get_session)],
+) -> List[LiveFixtureResponse]:
     """List a gameweek's matches by kickoff, with scores and minutes during play.
 
     Calls FPL live. finished_provisional is true at full time, before FPL confirms
-    the bonus points and sets finished. Returns 404 if FPL has no such gameweek. If
-    FPL can't be reached, returns the last copy saved, with X-Data-Stale-As-Of, or
-    503 without one.
+    the bonus points and sets finished. Returns [] for a gameweek with every match
+    postponed, and 404 for a gameweek that doesn't exist. If FPL can't be reached,
+    returns the last copy saved, with X-Data-Stale-As-Of, or 503 without one. Uses
+    a plain session, not DataSession, like Live.
     """
     try:
         return live.call(
             f"events/{event_id}/fixtures",
             FIXTURES,
-            lambda: events.get_fixtures(event_id),
+            lambda: events.get_fixtures(session, event_id),
         )
     except FplNotFoundError as exc:
         raise HTTPException(
