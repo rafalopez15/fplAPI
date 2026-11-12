@@ -3,6 +3,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from src.db.models import Event
 from src.models.event import EventResponse, LiveElementResponse
+from src.models.fixture import LiveFixtureResponse
+from src.services.fpl_rows import readable
 from src.util import fpl_client
 
 
@@ -37,3 +39,30 @@ def get_live(event_id: int) -> List[LiveElementResponse]:
         LiveElementResponse.model_validate({"id": item["id"], **item.get("stats", {})})
         for item in items
     ]
+
+
+def get_fixtures(session: Session, event_id: int) -> List[LiveFixtureResponse]:
+    """Return a gameweek's matches by kickoff, with live scores and minutes.
+
+    Calls FPL live, like get_live. FPL answers [] for a gameweek it doesn't have,
+    and for one with every match postponed, so [] is only returned for a stored
+    gameweek; otherwise it raises FplNotFoundError. A match we can't read is left
+    out rather than failing the list, and an answer that isn't a list raises
+    FplUnavailableError.
+    """
+    rows = fpl_client.fetch_event_fixtures(event_id)
+    if not isinstance(rows, list):
+        raise fpl_client.FplUnavailableError("FPL sent fixtures that aren't a list")
+    if not rows:
+        if session.get(Event, event_id) is None:
+            raise fpl_client.FplNotFoundError(f"No event {event_id}")
+        return []
+    fixtures = readable(rows, LiveFixtureResponse, "fixture", "id")
+    return sorted(
+        fixtures,
+        key=lambda fixture: (
+            fixture.kickoff_time is None,
+            fixture.kickoff_time.timestamp() if fixture.kickoff_time else 0,
+            fixture.id,
+        ),
+    )

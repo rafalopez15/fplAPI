@@ -127,6 +127,16 @@ def test_an_unreadable_row_is_skipped(api, fetch, caplog):
     assert "Skipping unreadable standing 7700093" in caplog.text
 
 
+def test_a_row_that_isnt_an_object_is_skipped(api, fetch, caplog):
+    fetch.return_value = make_fpl_league_standings(
+        results=[None, make_fpl_standing(1, "Solio Moose", 2)]
+    )
+    response = api.get("/api/leagues/5508")
+    assert response.status_code == 200
+    assert [row["entry"] for row in response.json()["standings"]] == [1]
+    assert "Skipping unreadable standing None" in caplog.text
+
+
 def test_a_missing_league_id_falls_back_to_the_path(api, fetch):
     data = make_fpl_league_standings()
     del data["league"]["id"]

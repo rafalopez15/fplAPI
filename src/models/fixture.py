@@ -25,3 +25,14 @@ class FixtureResponse(BaseModel):
     finished: bool
     team_h_score: Optional[int] = None
     team_a_score: Optional[int] = None
+
+
+class LiveFixtureResponse(FixtureResponse):
+    """A match as FPL sends it live, during its gameweek.
+
+    minutes is how long it's been played. finished_provisional is true at full
+    time, before FPL confirms the bonus points and sets finished.
+    """
+
+    minutes: int = 0
+    finished_provisional: bool = False
