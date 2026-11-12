@@ -15,8 +15,9 @@ secretGroup = 1
 entropy = 3.0
 keywords = ["postgres"]
 
-# Resend's keys start with re_. Its docs' placeholder (re_123456789) is too short
-# to match.
+# Resend's keys are re_, 8 letters and digits, _, then 24 (checked against a real
+# key in November 2026). Its docs' placeholder (re_123456789) is too short to
+# match.
 [[rules]]
 id = "resend-api-key"
 description = "Resend API key"
