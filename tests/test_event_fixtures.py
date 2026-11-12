@@ -116,6 +116,21 @@ def test_an_unreadable_fixture_is_skipped(api, fetch, caplog):
     assert "Skipping unreadable fixture 91" in caplog.text
 
 
+def test_a_fixture_that_isnt_an_object_is_skipped(api, fetch, caplog):
+    fetch.return_value = [None, make_fixture(id=92)]
+    response = api.get("/api/events/10/fixtures")
+    assert [fixture["id"] for fixture in response.json()] == [92]
+    assert "Skipping unreadable fixture None" in caplog.text
+
+
+def test_fixtures_that_arent_a_list_return_503(api, fetch):
+    # FPL's error objects, for example.
+    fetch.return_value = {"detail": "Not found."}
+    response = api.get("/api/events/10/fixtures")
+    assert response.status_code == 503
+    assert response.json() == {"detail": "FPL is unavailable right now"}
+
+
 @pytest.mark.parametrize("error", [None, FplNotFoundError("nope")])
 def test_get_fixtures_unknown_gameweek_returns_404(api, fetch, error):
     # FPL answers [] for a gameweek it doesn't have; a 404 is handled the same.
