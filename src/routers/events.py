@@ -1,6 +1,7 @@
 from typing import List
 from fastapi import APIRouter, HTTPException
 from src.models.event import EventResponse, LiveElementResponse
+from src.models.fixture import LiveFixtureResponse
 from src.routers.live import Live, LiveRoute
 from src.routers.params import EventId
 from src.services import events
@@ -15,6 +16,8 @@ LIVE_CACHE = "s-maxage=60, stale-while-revalidate=60"
 
 # A gameweek that hasn't started is [], not worth saving.
 LIVE = LiveRoute(List[LiveElementResponse], LIVE_CACHE, keep=bool)
+# [] only if no match could be read.
+FIXTURES = LiveRoute(List[LiveFixtureResponse], LIVE_CACHE, keep=bool)
 
 
 @events_router.get("/events")
@@ -58,6 +61,29 @@ def get_live(event_id: EventId, live: Live) -> List[LiveElementResponse]:
             f"events/{event_id}/live",
             LIVE,
             lambda: events.get_live(event_id),
+        )
+    except FplNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Event not found",
+            headers={"Cache-Control": "no-store"},
+        ) from exc
+
+
+@events_router.get("/events/{event_id}/fixtures")
+def get_fixtures(event_id: EventId, live: Live) -> List[LiveFixtureResponse]:
+    """List a gameweek's matches by kickoff, with scores and minutes during play.
+
+    Calls FPL live. finished_provisional is true at full time, before FPL confirms
+    the bonus points and sets finished. Returns 404 if FPL has no such gameweek. If
+    FPL can't be reached, returns the last copy saved, with X-Data-Stale-As-Of, or
+    503 without one.
+    """
+    try:
+        return live.call(
+            f"events/{event_id}/fixtures",
+            FIXTURES,
+            lambda: events.get_fixtures(event_id),
         )
     except FplNotFoundError as exc:
         raise HTTPException(

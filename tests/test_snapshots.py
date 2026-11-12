@@ -19,6 +19,7 @@ from src.services import snapshots, transfer_points
 from src.util import fpl_client
 from src.util.fpl_client import FplNotFoundError, FplUnavailableError
 from tests.conftest import (
+    make_fixture,
     make_fpl_event_live,
     make_fpl_history,
     make_fpl_league_standings,
@@ -36,6 +37,7 @@ ROUTES = [
     ("/api/managers/1/picks?event=9", "fetch_manager_picks", "managers/1/picks/9"),
     ("/api/managers/1/picks", "fetch_manager", "managers/1/picks/current"),
     ("/api/events/9/live", "fetch_event_live", "events/9/live"),
+    ("/api/events/10/fixtures", "fetch_event_fixtures", "events/10/fixtures"),
     ("/api/leagues/5508", "fetch_league_standings", "leagues/5508/1"),
 ]
 
@@ -46,6 +48,7 @@ PAYLOADS = {
     "fetch_manager_history": make_fpl_history,
     "fetch_manager_picks": make_fpl_picks,
     "fetch_event_live": make_fpl_event_live,
+    "fetch_event_fixtures": lambda: [make_fixture()],
     "fetch_league_standings": lambda: make_fpl_league_standings(
         new_entries=[make_fpl_new_entry(8533420, "Kt")]
     ),
@@ -224,6 +227,12 @@ def test_live_points_before_a_gameweek_starts_are_not_saved(
 ):
     fpl["fetch_event_live"].return_value = {"elements": []}
     assert client.get("/api/events/11/live").json() == []
+    assert not saved_keys(seeded_session)
+
+
+def test_fixtures_with_no_readable_match_are_not_saved(client, seeded_session, fpl):
+    fpl["fetch_event_fixtures"].return_value = [make_fixture(team_h=None)]
+    assert client.get("/api/events/10/fixtures").json() == []
     assert not saved_keys(seeded_session)
 
 

@@ -1,9 +1,14 @@
+import logging
 from typing import List, Optional
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from src.db.models import Event
 from src.models.event import EventResponse, LiveElementResponse
+from src.models.fixture import LiveFixtureResponse
 from src.util import fpl_client
+
+logger = logging.getLogger(__name__)
 
 
 def get_events(session: Session) -> List[EventResponse]:
@@ -37,3 +42,29 @@ def get_live(event_id: int) -> List[LiveElementResponse]:
         LiveElementResponse.model_validate({"id": item["id"], **item.get("stats", {})})
         for item in items
     ]
+
+
+def get_fixtures(event_id: int) -> List[LiveFixtureResponse]:
+    """Return a gameweek's matches by kickoff, with live scores and minutes.
+
+    Calls FPL live, like get_live. Every gameweek has matches, so FPL's empty list
+    (its answer for a gameweek it doesn't have) raises FplNotFoundError. A match
+    we can't read is left out rather than failing the list.
+    """
+    rows = fpl_client.fetch_event_fixtures(event_id)
+    if not rows:
+        raise fpl_client.FplNotFoundError(f"FPL has no fixtures for event {event_id}")
+    fixtures = []
+    for row in rows:
+        try:
+            fixtures.append(LiveFixtureResponse.model_validate(row))
+        except ValidationError as exc:
+            logger.warning("Skipping unreadable fixture %r: %s", row.get("id"), exc)
+    return sorted(
+        fixtures,
+        key=lambda fixture: (
+            fixture.kickoff_time is None,
+            fixture.kickoff_time.timestamp() if fixture.kickoff_time else 0,
+            fixture.id,
+        ),
+    )
