@@ -108,6 +108,14 @@ def fetch_event_live(event: int) -> dict:
     return _get_live_json(f"{EVENT_URL}{event}/live/")
 
 
+def fetch_event_fixtures(event: int) -> list:
+    """A gameweek's matches, with live scores and minutes during play.
+
+    FPL answers an empty list, not a 404, for a gameweek it doesn't have.
+    """
+    return _get_live_json(f"{FIXTURES_URL}?event={event}")
+
+
 def fetch_league_standings(league_id: int, page: int) -> dict:
     """A classic league's standings, 50 teams a page.
 

@@ -129,6 +129,15 @@ def test_event_live_uses_the_proxy_timeout(monkeypatch):
     )
 
 
+def test_event_fixtures_use_the_proxy_timeout(monkeypatch):
+    get = mock_get(monkeypatch, ok_response([]))
+
+    assert fpl_client.fetch_event_fixtures(9) == []
+    get.assert_called_once_with(
+        FIXTURES_URL + "?event=9", timeout=FPL_PROXY_TIMEOUT, headers=HEADERS
+    )
+
+
 def test_league_standings_use_the_proxy_timeout(monkeypatch):
     get = mock_get(monkeypatch, ok_response({"standings": {}}))
 
