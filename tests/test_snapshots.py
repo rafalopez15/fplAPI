@@ -48,7 +48,8 @@ PAYLOADS = {
     "fetch_manager_history": make_fpl_history,
     "fetch_manager_picks": make_fpl_picks,
     "fetch_event_live": make_fpl_event_live,
-    "fetch_event_fixtures": lambda: [make_fixture()],
+    # In play, so the stale copy must keep the live fields.
+    "fetch_event_fixtures": lambda: [make_fixture(started=True, minutes=63)],
     "fetch_league_standings": lambda: make_fpl_league_standings(
         new_entries=[make_fpl_new_entry(8533420, "Kt")]
     ),
@@ -230,8 +231,13 @@ def test_live_points_before_a_gameweek_starts_are_not_saved(
     assert not saved_keys(seeded_session)
 
 
-def test_fixtures_with_no_readable_match_are_not_saved(client, seeded_session, fpl):
-    fpl["fetch_event_fixtures"].return_value = [make_fixture(team_h=None)]
+@pytest.mark.parametrize(
+    "rows",
+    [[make_fixture(team_h=None)], []],
+    ids=["no readable match", "every match postponed"],
+)
+def test_fixtures_with_no_match_are_not_saved(client, seeded_session, fpl, rows):
+    fpl["fetch_event_fixtures"].return_value = rows
     assert client.get("/api/events/10/fixtures").json() == []
     assert not saved_keys(seeded_session)
 
