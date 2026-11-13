@@ -92,7 +92,7 @@ Don't edit a migration that has already been applied: add a new one instead.
 ## ⏱️ Scheduled jobs (GitHub Actions)
 `src/jobs/sync_bootstrap.py` copies FPL's `bootstrap-static` (teams, positions, players and gameweeks) and the season's fixtures into the database, then each finished gameweek's points per player (once per gameweek, after FPL confirms its bonus points; the first run backfills the season so far). GitHub Actions runs it every hour, started by Supabase (see [Hourly trigger](#hourly-trigger-supabase-pg_cron)), and each run is recorded in the `sync_runs` table. A failed run leaves the previous data in place.
 
-When a change to `migrations/`, `src/db/` or `alembic.ini` reaches `main`, the **Migrate database** workflow applies it to Supabase with `alembic upgrade head`.
+When a change to `migrations/`, `src/db/` or `alembic.ini` reaches `main`, the **Migrate database** workflow applies it to Supabase with `alembic upgrade head`. Each hourly sync also runs that workflow's production job first, so if GitHub ever loses the run for a merge, the next sync applies the migration, with a "Migration applied by the sync" warning on its run page. If a migration fails there, that hour's production sync is skipped, and the data goes stale until it's fixed.
 
 Both workflows have a job for production and one for [staging](#staging-database-for-previews). They need each database's session pooler connection string as a GitHub secret:
 
