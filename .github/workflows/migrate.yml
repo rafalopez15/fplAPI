@@ -2,8 +2,7 @@ name: Migrate database
 
 # Production migrates only from main. Staging, the database Vercel previews use,
 # also migrates on pull requests, so a PR's schema change is live on its preview.
-# The hourly sync calls this first too, so a migration whose push run GitHub lost
-# still lands within the hour.
+# The hourly sync calls it first, in case a push run was lost.
 on:
   push:
     branches: [main]
@@ -20,7 +19,7 @@ on:
   workflow_dispatch:
   workflow_call:
     inputs:
-      # In a called run, github.event_name is the caller's, so the sync says so.
+      # A called run sees the caller's github.event_name.
       from_sync:
         description: Called by the hourly sync
         type: boolean
@@ -54,8 +53,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     - name: Apply migrations
-      # Secret on this step only, not pip install. A migration applied from the
-      # sync means its push run was lost, so it's flagged on the run page.
+      # Secret on this step only, not pip install. Warns if the sync had to migrate.
       env:
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
         FROM_SYNC: ${{ inputs.from_sync }}
@@ -69,8 +67,8 @@ jobs:
         fi
 
   staging:
-    # Dependabot's runs can't read repository secrets. Never from the sync: with a
-    # migration PR open, staging is at a revision main doesn't have.
+    # Dependabot's runs can't read repository secrets. Not from the sync: staging
+    # may be at a PR's revision.
     if: github.actor != 'dependabot[bot]' && !inputs.from_sync
     runs-on: ubuntu-latest
     timeout-minutes: 10

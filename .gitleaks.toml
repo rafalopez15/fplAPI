@@ -1,12 +1,10 @@
-# Gitleaks' default rules, plus DATABASE_URL's password and Resend's keys, which
-# they miss. Allowlist a false positive here as narrowly as possible (see
-# CLAUDE.md), never by turning a rule off.
+# Default rules plus two they miss. Allowlist false positives narrowly, never by
+# turning a rule off.
 [extend]
 useDefault = true
 
-# Test URLs' passwords (fpl, test, pw, <password>) and Supabase's [YOUR-PASSWORD]
-# placeholder don't match. Neither does a weak hand-set password (password1,
-# postgres): below the entropy limit, which stays so local defaults pass.
+# Skips test passwords (fpl, pw, <password>), [YOUR-PASSWORD], and weak ones like
+# password1 or postgres.
 [[rules]]
 id = "postgres-url-password"
 description = "Password in a Postgres connection URL"
@@ -15,9 +13,7 @@ secretGroup = 1
 entropy = 3.0
 keywords = ["postgres"]
 
-# Resend's keys are re_, 8 letters and digits, _, then 24 (checked against a real
-# key in November 2026). Its docs' placeholder (re_123456789) is too short to
-# match.
+# re_, 8 letters and digits, _, then 24. Skips the docs' re_123456789.
 [[rules]]
 id = "resend-api-key"
 description = "Resend API key"

@@ -1,4 +1,4 @@
-"""Reading the lists FPL sends live into response models."""
+"""FPL's live lists as response models."""
 
 import logging
 from typing import List, Type, TypeVar
@@ -10,8 +10,7 @@ Row = TypeVar("Row", bound=BaseModel)
 
 
 def readable(rows: list, model: Type[Row], label: str, key: str) -> List[Row]:
-    """Rows we can't read, objects or not, are skipped and logged rather than
-    failing the list. key is the field that identifies a row in the log."""
+    """Skips and logs rows that don't fit model. key names a row in the log."""
     found = []
     for row in rows:
         try:
