@@ -21,6 +21,9 @@ jobs:
     uses: ./.github/workflows/migrate.yml
     with:
       from_sync: true
+    # A called workflow gets no secrets unless passed, environment ones included.
+    secrets:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
   production:
     # A run started by hand from another branch only touches staging. Skipped if
