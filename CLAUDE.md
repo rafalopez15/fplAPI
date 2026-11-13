@@ -40,8 +40,7 @@ colima start && docker start fplapi-test-db  # local test database (setup in REA
 ## Architecture
 
 ```
-main.py                  App setup: exception handlers (503s), /healthcheck, private
-                         Cache-Control on /api/me
+main.py                  App setup: exception handlers (503s), /healthcheck, middleware
 alembic.ini              Alembic settings; the database URL is set in migrations/env.py
 migrations/              Alembic environment and versions/ (one file per migration)
 src/
@@ -63,6 +62,9 @@ src/
                          DELETE /me to delete it;
                          /me/teams, /me/teams/{manager_id}: their teams and followed teams
     notes.py             /me/notes, /me/notes/{note_id}: notes synced across devices
+  middleware/            Wrap every request, registered in main.py
+    cache.py             Cache-Control defaults: private on /api/me, CDN caching for synced
+                         routes
   services/              Business logic: queries that return Pydantic models
     transfer_points.py   Net points per transfer, and Wildcard/Free Hit churn (is_churn)
     leagues.py           A classic league's standings page, flattened from FPL's response
@@ -157,6 +159,8 @@ The exceptions are `/managers/...`, `/leagues/{id}`, `/events/{id}/live` and `/e
   - In Wildcard and Free Hit weeks FPL's list records every swap tried (55 rows for one Free Hit), so each gameweek is reduced to its real changes: players bought more often than sold, and sold more often than bought. Rows pairing a real in with a real out are real transfers; the rest are `is_churn`. Real changes no row pairs are paired by position (earliest bought with earliest sold) and returned as rows the API builds, with the incoming player's buy `time`.
   - A transfer for gameweek N covers N until the gameweek before the player is sold again, or the latest stored gameweek. A Free Hit transfer covers its gameweek only and doesn't end an earlier one. Points are null for churn, before N is stored, and when the database can't be read. Pairing needs positions from the database too, so without it a gameweek with unpaired changes isn't flagged as churn at all: the app shows FPL's rows for that week, rather than hiding real changes.
 - **Caching:** the live routes set `Cache-Control: s-maxage=..., stale-while-revalidate=...` on successful responses, so Vercel's CDN serves repeats without calling FPL: 60s for the manager, transfers, picks, live points and live fixtures, 300s for history and league standings. Errors send `no-store`. An in-memory cache would be useless on Vercel, whose instances don't share memory and scale to zero.
+  - **Synced routes are cached by default** (FPL-129): `cache_synced_data` in `src/middleware/cache.py` sets `SYNCED_CACHE` (`s-maxage=300, stale-while-revalidate=3600`) on a `GET` under `/api/` that answers 200 with no `Cache-Control`. The data changes hourly, so a copy up to 5 minutes old is fine, and for an hour after that the CDN serves the old copy while it refetches, and the full player list is one cached response for every user. A route that sets its own header keeps it (live routes, stale snapshots, `/api/me`); errors and `/healthcheck` get none, so a 503 isn't served after the database recovers. A new synced route is covered automatically; one that must stay fresh sets its own header.
+  - **CORS (FPL-69):** cached responses must carry `Vary: Origin` once CORS is added, or the CDN can serve a browser a copy cached without its CORS headers.
 - **Snapshots** (FPL-76): FPL takes its API down for an hour or more after each deadline while the game updates, longer than the CDN's `stale-while-revalidate` covers. So every live route (`/managers/...`, `/leagues/{id}`, `/events/{id}/live`, `/events/{id}/fixtures`) goes through `Live.call()`, which upserts each successful response into `fpl_snapshots`, one row per key (`managers/1/picks/9`, `managers/1/picks/current` without `?event=`, `leagues/5508/1`...). On `FplUnavailableError` it returns the saved copy as a 200 with `X-Data-Stale-As-Of` (its `fetched_at`, ISO 8601) and `Cache-Control: s-maxage=30`, so fresh data returns soon after FPL does; without one, the 503 from `main.py`. Clients can show "FPL is updating · showing data as of 13:28".
   - What's saved is the response model's output, never FPL's raw JSON, so real names can't reach the table (`tests/test_snapshots.py` checks every route).
   - 404s (`FplNotFoundError`) are never served from a snapshot. `/transfers` makes two FPL calls; either failing serves the whole saved copy. If its points read fails, `get_transfers()` rolls back the shared session so the save (with null points) still goes through.
@@ -189,7 +193,7 @@ The exceptions are `/managers/...`, `/leagues/{id}`, `/events/{id}/live` and `/e
   - **Deleting is a write:** `deleted_at` set on a `PUT` (or `DELETE ...?updated_at=`, the same thing). The row stays as a tombstone with its content cleared, so other devices learn about it, and an undo is a later `PUT` with `deleted_at` null. Device times decide everything, so a delete and its undo can't be reordered by clock differences between the phone and the server.
   - **`GET /api/me/notes?since=<cursor>`** pages through changes by `synced_at` (server `clock_timestamp()` of each write), ordered by `(synced_at, id)` so notes written in the same instant aren't skipped; 500 per page, `more` when another is waiting. The last page's cursor is held `LOOKBACK` (5s) behind the clock, so a write still committing when the page was read comes through next time; the device may see a note twice and applies it by id. The cursor is opaque (base64 of the time and id).
   - Tombstones are never purged yet.
-- **Never cached:** a middleware in `main.py` sets `Cache-Control: private, no-store` on every response under `/api/me`, errors included (except an unhandled 500, which Starlette sends from outside the middleware with no `Cache-Control`; the CDN doesn't cache it either), so Vercel's CDN can't serve one user's data to another. `test_every_account_response_is_private` walks every `/api/me` route and method; a new account route is covered automatically.
+- **Never cached:** `never_cache_accounts` (`src/middleware/cache.py`) sets `Cache-Control: private, no-store` on every response under `/api/me`, errors included (except an unhandled 500, which Starlette sends from outside the middleware with no `Cache-Control`; the CDN doesn't cache it either), so Vercel's CDN can't serve one user's data to another. `test_every_account_response_is_private` walks every `/api/me` route and method; a new account route is covered automatically.
 
 ### Error responses
 Use these status codes consistently:
