@@ -1,0 +1,96 @@
+name: Stale sync alert
+
+# If the hourly sync stops (an expired trigger token, pg_cron failing, or a
+# migration failing before each sync), production's data goes stale and nothing
+# says so. This reads /healthcheck every 6 hours and keeps one issue open while the
+# sync is behind; GitHub emails new issues. Its own blind spot: GitHub skips
+# scheduled runs, and disables schedules after 60 days without repo activity.
+on:
+  schedule:
+    - cron: "43 */6 * * *"
+  # By hand, with a lower limit to test the alert.
+  workflow_dispatch:
+    inputs:
+      max_age_hours:
+        description: Alert when the last sync is older than this many hours
+        default: "3"
+
+permissions:
+  issues: write
+
+# Two runs at once could each open an issue.
+concurrency:
+  group: stale-sync-alert
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check the last sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      HEALTHCHECK_URL: https://fpl-api-six.vercel.app/healthcheck
+      MAX_AGE_HOURS: ${{ inputs.max_age_hours || '3' }}
+      TITLE: Production sync is stale
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      EVENT: ${{ github.event_name }}
+    steps:
+    - name: Check /healthcheck and open, update or close the issue
+      # The run passes either way: the issue is the alert, and a failed run would
+      # email every 6 hours.
+      run: |
+        hours_since() {
+          python3 -c 'import sys, datetime as d
+        t = d.datetime.fromisoformat(sys.argv[1].replace("Z", "+00:00"))
+        print(round((d.datetime.now(d.timezone.utc) - t).total_seconds() / 3600, 1))' "$1"
+        }
+
+        problem=""
+        if ! health=$(curl --silent --show-error --fail --retry 3 --retry-delay 5 \
+            --retry-all-errors --max-time 20 "$HEALTHCHECK_URL"); then
+          problem="/healthcheck didn't answer, so the API itself may be down."
+        else
+          database=$(jq -r '.database' <<< "$health" 2> /dev/null || echo unreadable)
+          last_sync=$(jq -r '.last_sync // empty' <<< "$health" 2> /dev/null || true)
+          if [ "$database" != ok ]; then
+            problem="/healthcheck reports the database as \`$database\`."
+          elif [ -z "$last_sync" ]; then
+            problem="/healthcheck reports no successful sync."
+          else
+            age=$(hours_since "$last_sync")
+            echo "Last sync $last_sync, $age hours ago (limit $MAX_AGE_HOURS)"
+            if python3 -c 'import sys; sys.exit(float(sys.argv[1]) <= float(sys.argv[2]))' \
+                "$age" "$MAX_AGE_HOURS"; then
+              problem="The last successful sync was $age hours ago ($last_sync); the limit is $MAX_AGE_HOURS."
+            fi
+          fi
+        fi
+
+        issue=$(gh issue list --state open --search "\"$TITLE\" in:title" \
+          --json number,title --jq "map(select(.title == \"$TITLE\")) | .[0].number // empty")
+
+        if [ -n "$problem" ]; then
+          echo "Stale: $problem"
+          body="$problem See the Runbook's \"Production sync is stale\" section. Checked by $RUN_URL"
+          if [ -z "$issue" ]; then
+            gh issue create --title "$TITLE" --body "$body"
+            exit 0
+          fi
+          # Scheduled runs comment at most once a day; a manual run always does.
+          last=$(gh issue view "$issue" --json createdAt,comments \
+            --jq '[.createdAt] + [.comments[].createdAt] | max')
+          if [ "$EVENT" = workflow_dispatch ] || \
+              python3 -c 'import sys; sys.exit(float(sys.argv[1]) < 24)' "$(hours_since "$last")"; then
+            gh issue comment "$issue" --body "Still stale. $body"
+          else
+            echo "Issue #$issue was updated in the last day; not commenting."
+          fi
+        elif [ -n "$issue" ]; then
+          echo "Recovered; closing #$issue"
+          gh issue comment "$issue" --body "Recovered: the last sync was $last_sync. Checked by $RUN_URL"
+          gh issue close "$issue"
+        else
+          echo "OK"
+        fi
