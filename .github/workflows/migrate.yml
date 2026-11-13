@@ -24,6 +24,12 @@ on:
         description: Called by the hourly sync
         type: boolean
         default: false
+    secrets:
+      DATABASE_URL:
+        required: true
+      # Unused when called (staging is skipped), declared so the file lints.
+      STAGING_DATABASE_URL:
+        required: false
 
 permissions:
   contents: read
