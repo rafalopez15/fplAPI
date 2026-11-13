@@ -9,3 +9,7 @@ test-results.xml
 pylint-report.json
 black.log
 black.diff
+
+# Claude Code, personal
+.claude/settings.local.json
+CLAUDE.local.md
