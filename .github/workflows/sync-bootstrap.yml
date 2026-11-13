@@ -9,14 +9,13 @@ on:
   # and by hand from the Actions tab.
   workflow_dispatch:
 
-# Also the most the called migrate.yml can have.
+# Also caps the called migrate.yml.
 permissions:
   contents: read
 
 jobs:
-  # Applies any migration whose push run GitHub lost, before the sync needs the
-  # schema. Production only; the called job holds the database group itself, so
-  # this job sets no concurrency (the same group on both would deadlock).
+  # Catches a migration whose push run was lost. No concurrency here: the called
+  # job's group would deadlock with it.
   migrate:
     if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/migrate.yml
@@ -25,7 +24,7 @@ jobs:
 
   production:
     # A run started by hand from another branch only touches staging. Skipped if
-    # a migration fails: the sync's code needs that schema.
+    # the migration fails.
     if: github.ref == 'refs/heads/main'
     needs: migrate
     runs-on: ubuntu-latest
