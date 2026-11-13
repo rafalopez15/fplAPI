@@ -1,14 +1,11 @@
 name: Stale sync alert
 
-# If the hourly sync stops (an expired trigger token, pg_cron failing, or a
-# migration failing before each sync), production's data goes stale and nothing
-# says so. This reads /healthcheck every 6 hours and keeps one issue open while the
-# sync is behind; GitHub emails new issues. Its own blind spot: GitHub skips
-# scheduled runs, and disables schedules after 60 days without repo activity.
+# Keeps one issue open while production's last sync is over 3 hours old. GitHub
+# skips scheduled runs, and disables them after 60 days without repo activity.
 on:
   schedule:
     - cron: "43 */6 * * *"
-  # By hand, with a lower limit to test the alert.
+  # Lower max_age_hours to test.
   workflow_dispatch:
     inputs:
       max_age_hours:
@@ -38,8 +35,7 @@ jobs:
       EVENT: ${{ github.event_name }}
     steps:
     - name: Check /healthcheck and open, update or close the issue
-      # The run passes either way: the issue is the alert, and a failed run would
-      # email every 6 hours.
+      # Passes either way: the issue is the alert.
       run: |
         hours_since() {
           python3 -c 'import sys, datetime as d
@@ -78,7 +74,7 @@ jobs:
             gh issue create --title "$TITLE" --body "$body"
             exit 0
           fi
-          # Scheduled runs comment at most once a day; a manual run always does.
+          # Scheduled runs comment at most daily; manual runs always.
           last=$(gh issue view "$issue" --json createdAt,comments \
             --jq '[.createdAt] + [.comments[].createdAt] | max')
           if [ "$EVENT" = workflow_dispatch ] || \
