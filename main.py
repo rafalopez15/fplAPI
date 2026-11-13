@@ -9,7 +9,7 @@ from src.services.profiles import AccountDeletedError
 from src.util.auth import not_signed_in
 from src.util.database import FplDataUnavailableError
 from src.util.fpl_client import FplUnavailableError
-from src.middleware.cache import never_cache_accounts
+from src.middleware.cache import cache_synced_data, never_cache_accounts
 from src.routers import routers
 
 logger = logging.getLogger(__name__)
@@ -21,6 +21,7 @@ app = FastAPI(title="Fpl API")
 UNAVAILABLE = {"detail": "FPL data is currently unavailable"}
 
 app.middleware("http")(never_cache_accounts)
+app.middleware("http")(cache_synced_data)
 
 
 @app.exception_handler(FplDataUnavailableError)
