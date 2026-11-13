@@ -109,6 +109,8 @@ Both can also be started by hand from the **Actions** tab (**Run workflow**). St
 python -m src.jobs.sync_bootstrap
 ```
 
+If the sync stops, the **Stale sync alert** workflow notices within about 6 hours: it reads production's `/healthcheck`, and while the last sync is more than 3 hours old it keeps a "Production sync is stale" issue open, which GitHub emails. It closes the issue once the sync recovers.
+
 ### Staging database (for previews)
 Vercel preview deployments use a second Supabase project, `fpl-api-staging`, so unmerged code never reads or writes production data. It's set up like production (free plan, us-east-2, Data API off, RLS from the migrations) and holds only test data, so it's safe to reset.
 
