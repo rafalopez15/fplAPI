@@ -45,7 +45,8 @@ def get_fixtures(session: Session, event_id: int) -> List[LiveFixtureResponse]:
     """Return a gameweek's matches by kickoff, live from FPL.
 
     FPL answers [] for unknown and fully postponed gameweeks alike, so [] is
-    FplNotFoundError unless the gameweek is stored.
+    FplNotFoundError unless the gameweek is stored. Unreadable matches are skipped,
+    and an answer that isn't a list is FplUnavailableError.
     """
     rows = fpl_client.fetch_event_fixtures(event_id)
     if not isinstance(rows, list):
