@@ -1,277 +1,62 @@
 # fplAPI
 
-FastAPI service that serves Fantasy Premier League (FPL) data through a cleaner REST interface, from a Postgres copy of the official FPL API that an hourly job keeps current. Its main consumer will be an iOS app.
+FastAPI service serving Fantasy Premier League (FPL) data under `/api`, from a Postgres copy of FPL's API that an hourly job keeps current. The FPL Social iOS app is its main client.
+
+Rules for one area load from `.claude/rules/` when you open its files: `database.md`, `live-routes.md`, `accounts.md`, `sync.md`, `testing.md`, `workflows.md`. How-tos for people are in `README.md`; decisions and their history are in Linear (team FPL Social, Architecture doc).
 
 ## Working guidelines
 
-Adapted from [andrej-karpathy-skills/CLAUDE.md](https://github.com/multica-ai/andrej-karpathy-skills/blob/main/CLAUDE.md). They favor caution over speed; use judgment on trivial tasks.
-
-1. **Think before coding.** State assumptions. If a request can be read more than one way, lay out the options instead of picking one silently. Ask when something is unclear, and raise tradeoffs early.
-2. **Simplicity first.** Write the smallest change that solves the stated problem. No speculative features, extra abstractions, or configuration nobody asked for.
-3. **Surgical changes.** Touch only what the task requires. Leave unrelated code, comments and formatting alone. Clean up only what your own change orphaned; point out other problems instead of fixing them unasked.
-4. **Goal-driven execution.** Turn each task into something you can verify, such as a test that fails before the fix and passes after. For multi-step work, give a short plan with a check for each step.
-
-## Git conventions
-
-- **No AI attribution.** Never add `Co-Authored-By: Claude`, "Generated with Claude Code", or any other Claude/AI attribution to commit messages or PR descriptions.
-- Group changes into logical commits, each leaving the app working: for example config, fixes, tests and tooling as separate commits.
-- Commit messages: a short imperative subject line, then a body explaining what changed and why.
-- Commit or push only when asked.
-- **Branches:** one short-lived branch per Linear story, created from an up-to-date `main` and named with the issue id (e.g. `fpl-8-sync-bootstrap`) so Linear links it. There's no `dev` branch. Once a branch's PR is merged, don't commit to it again: start the next story on a new branch.
-- **Merging:** PRs merge into `main` with a merge commit, not squash or rebase, so the logical commits above survive on `main`.
+- State assumptions, and when a request can be read more than one way, lay out the options instead of picking one silently.
+- Write the smallest change that solves the problem. No speculative features or configuration nobody asked for.
+- Touch only what the task needs; point out other problems instead of fixing them unasked.
+- Make each task verifiable, e.g. a test that fails before the fix and passes after.
 
 ## Commands
 
 ```bash
 source env/bin/activate              # venv lives in env/ (not .env, which is config)
 pip install -r requirements-dev.txt  # app, test and lint dependencies
-cp .env.example .env                 # first-time setup
 fastapi dev main.py                  # run locally with reload
-python -m src.jobs.sync_bootstrap    # sync bootstrap-static into the database in DATABASE_URL
-docker build -t fplapi:local . && docker run --rm -p 8000:8000 --env-file .env fplapi:local
-python -m pytest                     # tests + coverage report (fails under 95%)
-pylint $(git ls-files '*.py')        # lint, same as CI (config in .pylintrc)
-black .                              # format, before committing (CI's Format job checks it)
-alembic upgrade head                 # migrate the local or test database in DATABASE_URL (Supabase: migrate.yml)
-alembic revision -m "describe change" # new migration in migrations/versions/
-colima start && docker start fplapi-test-db  # local test database (setup in README)
+python -m pytest                     # tests + coverage (fails under 95%)
+python -m pytest tests/test_event_fixtures.py -k orders   # one file or test
+pylint $(git ls-files '*.py')        # lint, as CI does
+black .                              # format before committing; CI checks it
+python -m src.jobs.sync_bootstrap    # sync FPL into the database in DATABASE_URL
+colima start && docker start fplapi-test-db  # local test database (README)
 ```
 
-## Architecture
+## Git and PRs
 
-```
-main.py                  App setup: exception handlers (503s), /healthcheck, middleware
-alembic.ini              Alembic settings; the database URL is set in migrations/env.py
-migrations/              Alembic environment and versions/ (one file per migration)
-src/
-  routers/               HTTP layer: one APIRouter per resource, mounted under /api
-    __init__.py          Combines the resource routers into a single `routers`
-    params.py            Id path parameters (ElementId, EventId, ManagerId...): positive and
-                         capped at Postgres's integer maximum, so a bad id is a 422, not a 500
-    live.py              Live: the dependency for routes that call FPL live; saves each answer
-                         and serves the saved one while FPL is down
-    elements.py          /elements, /elements/{id}, /elements/position/{element_type}
-    events.py            /events, /events/{id}, /events/current-event/, /events/{id}/live and
-                         /events/{id}/fixtures (live from FPL)
-    teams.py             /teams, /teams/{team_name}
-    fixtures.py          /fixtures (optional ?finished= and ?started= filters)
-    managers.py          /managers/{id}, /managers/{id}/transfers, /managers/{id}/history,
-                         /managers/{id}/picks?event= (live from FPL)
-    leagues.py           /leagues/{id}?page=: a classic league's standings (live from FPL)
-    me.py                /me: the signed-in user's account (Supabase sign-in token), and
-                         DELETE /me to delete it;
-                         /me/teams, /me/teams/{manager_id}: their teams and followed teams
-    notes.py             /me/notes, /me/notes/{note_id}: notes synced across devices
-  middleware/            Wrap every request, registered in main.py
-    cache.py             Cache-Control defaults: private on /api/me, CDN caching for synced
-                         routes
-  services/              Business logic: queries that return Pydantic models
-    transfer_points.py   Net points per transfer, and Wildcard/Free Hit churn (is_churn)
-    leagues.py           A classic league's standings page, flattened from FPL's response
-    fpl_rows.py          readable(): FPL rows that can't be read are skipped and logged
-    profiles.py          Accounts: ensure_profile() creates the row if it's missing
-    user_teams.py        An account's FPL teams: list, add or switch (checks FPL), remove
-    notes.py             Synced notes: newest updated_at wins, tombstones, the ?since= cursor
-    snapshots.py         The last good response of each live route (fpl_snapshots): save, load
-  models/                Pydantic response models (ElementResponse, EventResponse, TeamResponse,
-                         ProfileResponse, UserTeamResponse, NoteRequest, NoteResponse,
-                         LeagueStandingsResponse)
-  db/
-    models.py            SQLAlchemy ORM tables; Alembic autogenerates migrations from them
-  jobs/
-    sync_bootstrap.py    Hourly job: upserts bootstrap-static, then finished gameweeks' points,
-                         then names of account teams not stored yet, then purges old snapshots
-    manage_test_users.py Staging's test users (@fplsocial.dev): create, delete, clear (FPL-85)
-  util/
-    auth.py              CurrentUser: checks the Supabase access token, returns the user id
-    supabase_admin.py    Supabase's Auth Admin API (delete_user), with the secret key
-    config.py            Reads .env (python-dotenv) into module-level constants
-    database.py          Engine, session dependencies (DataSession), sync state, health checks
-    fpl_client.py        All FPL calls: the sync job's fetches and the live ones (manager*, event_live,
-                         event_fixtures, league_standings)
-tests/                   pytest suite, one file per layer (test_db.py: schema and migrations)
-vercel.json              Vercel settings: function region (cle1)
-.python-version          Python version for Vercel (3.13)
-Dockerfile               Image for running the API locally (Vercel doesn't use it)
-```
+- Commit or push only when asked.
+- One short-lived branch per Linear story from an up-to-date `main`, named with the issue id (`fpl-8-sync-bootstrap`). Never commit to a branch whose PR has merged.
+- Logical commits, each leaving the app working. Short imperative subject, then a body with what and why.
+- PRs merge with a merge commit, never squash or rebase (`.git-blame-ignore-revs` depends on the hashes).
+- PR title `FPL-<n>: <what it does>`. Description: `Closes FPL-<n>.` or `Part of FPL-<n>.`, one or two sentences, `## Changes`, `## Testing` (say what wasn't checked). Plain sentences, no emoji or hype.
 
-**Request flow:** router → service → SQLAlchemy query on Postgres → Pydantic response model.
+## Code
 
-The exceptions are `/managers/...`, `/leagues/{id}`, `/events/{id}/live` and `/events/{id}/fixtures`, which call FPL live through `fpl_client` (router → service → `fetch_*()` → FPL). Manager data is per user and there are too many leagues to store, so neither can be synced ahead of time, and live points and scores change by the minute during matches. Vercel's CDN caches their successful responses (see Fetching). They don't depend on the sync, so they work even when it's behind: each takes `Live` (`src/routers/live.py`), which uses a plain `get_session`, not `DataSession`, only to save each answer to `fpl_snapshots` and to serve the saved one while FPL is down (see Snapshots). `/transfers` also reads stored gameweek points (see Net points per transfer), and returns null points if the database can't be read.
+- **Layers:** router (HTTP only) → service (plain functions, session first, return Pydantic models via `model_validate`) → SQLAlchemy or `fpl_client`. Lists in FPL id order; `None`/`[]` when nothing matches.
+- **Endpoints are plain `def`**, never `async def`: SQLAlchemy calls block. From async code use `asyncio.to_thread`.
+- **Id path parameters** use the types in `src/routers/params.py`, never a bare `int`, so an id Postgres can't store is a 422, not a 500.
+- **Database routes** take `session: DataSession` (503 until a sync has succeeded). Live and account routes take a plain `get_session`.
+- **Settings:** secrets and per-environment values live in `.env`, read in `src/util/config.py`. A new setting must be optional with a default, or the deployed API won't start until it's set in Vercel. Keep `.env.example` in step. FPL URLs are constants in `fpl_client.py`, not settings.
+- **Never log or print `DATABASE_URL`** or any secret.
+- **Logging:** `logging.getLogger(__name__)` with `%s` placeholders; extra arguments without a placeholder make pytest's log capture raise.
+- **Don't add a `pyproject.toml`:** Vercel would install from it instead of `requirements.txt` and production breaks (why: FPL-86). Black runs with its defaults for the same reason.
+- **Formatting:** Black, line length 88. Black doesn't split long strings, comments or docstrings: rewrap them by hand. Fix Pylint warnings rather than silencing them.
+- **Comments:** short. Say why, not what; no ticket numbers or history.
+- Every new code path needs tests, error paths included. Coverage gate is 95% with branches; it's at 100%.
 
-**Account routes** (`/api/me...`, FPL-11) are the signed-in user's own data: router → `CurrentUser` (the token) → service → Postgres. They take a plain `get_session`, since accounts don't depend on the FPL sync, and every query filters by the user id from the token. See Accounts and sign-in.
+## Product rules
 
-- **Routers** handle HTTP concerns only: path parameters, status codes, `HTTPException`. Id path parameters use the types in `params.py`, never a bare `int`: an id Postgres can't store would fail the query with a 500. A new one is `Annotated[int, _id_path("...")]` there, written out so type checkers still see `int`. Endpoints are plain `def`, so FastAPI runs them in its thread pool and the blocking database calls don't stall the event loop. Each takes a `session: DataSession` and passes it to a service.
-- **`DataSession`** (`src/util/database.py`) is the request's session from `get_session`, after `get_data_session` checks that a bootstrap sync has succeeded. Tests override `get_session`.
-- **Services** are plain functions that take the session first. They query with the ORM models and return Pydantic models (built with `model_validate(row)`), or `None`/`[]` when nothing matches. Lists are in FPL id order.
-- **Response models** use `from_attributes=True`. `EventResponse` rebuilds FPL's `top_element_info` object from the `top_element` and `top_element_points` columns.
-- **Kit colors** (`primary_color`, `secondary_color` on teams) are the one thing FPL doesn't provide. They come from `KIT_COLORS` in `src/services/teams.py`, keyed by FPL's team `code` (the same for a club every season, unlike `id`), not from the database. A club missing from it gets `null`. **Each summer, add the promoted clubs** (their `code` is on `/api/teams` once FPL publishes the new season); `test_kit_colors_cover_a_full_league_in_hex` expects 20 entries, so drop the relegated ones too. Nothing flags a missing club automatically: the test only counts the map's entries and can't see FPL's clubs, so CI stays green while new clubs get `null`.
-- **Data refresh:** `src/jobs/sync_bootstrap.py` upserts bootstrap-static and FPL's `/fixtures/` into Postgres every hour (GitHub Actions), in one transaction. Then `sync_event_points()` stores every player's points for each gameweek that's `data_checked` (bonus confirmed, so final) and not stored yet, from `/event/{gw}/live/`: one `sync_runs` row (kind `event_points`, `event_id` set) and one transaction per gameweek, stopping at the first failure, so the next hour retries from there. It runs even if the bootstrap step failed. Last, `sync_team_names()` fetches `entry/{id}/` for up to `NAME_BATCH` (100) teams on accounts that `teams_tracked` doesn't have yet, once each; a team FPL doesn't have is stored with a null name, so it isn't asked for again, and an FPL failure stops it until the next run. Last, `purge_snapshots()` deletes snapshots of live routes older than 30 days (see Snapshots). Nothing is fetched at startup or per request. `/healthcheck` reports the last successful bootstrap sync as `last_sync`, and the points step as `last_points_sync`.
+- **Managers' real names never leave the API** (why: FPL-11, FPL-45). Response models leave them out; any new route built from FPL manager data needs the same test as `test_real_names_never_leave_the_api`.
+- **Accounts are optional.** FPL routes never read `Authorization`, and viewing any team never needs an account.
+- **A team's leagues on `/managers/{id}` are public by decision**, because FPL exposes the same list. Revisit only if FPL accounts get linked to app accounts.
+- **`/api/me` responses are never cached** (`private, no-store` from `main.py`'s middleware), so the CDN can't serve one user's data to another.
 
-## Design decisions
+## Status codes
 
-### Configuration
-- **Secrets and per-environment settings live in `.env`**, are read in `src/util/config.py`, and are imported as constants. Values that are the same everywhere don't belong there.
-- `DATABASE_URL` is the only required setting. It goes through `_get_env()`, which strips surrounding whitespace and raises at import time if it's missing or empty, so the app fails fast. Optional ones, like `FPL_REQUEST_TIMEOUT` (default 10s), use `os.getenv` with a default. A new setting should be optional with a default: the deployed API imports `config.py` too, and a new required setting would stop it from starting until it was added in Vercel.
-- **FPL's API paths are constants in `src/util/fpl_client.py`** (`BOOTSTRAP_STATIC_URL`, `FIXTURES_URL`, `ENTRY_URL`, `EVENT_URL`, `LEAGUE_STANDINGS_URL`), built from `FPL_BASE_URL`. That one is optional, defaulting to `https://fantasy.premierleague.com/api`, so it can point at a local mock. To call a new FPL endpoint, add a constant there, not a setting.
-- `.env` is gitignored; `.env.example` is committed and must stay in sync with it.
-
-### Database
-- Postgres on Supabase, accessed with SQLAlchemy (sync engine, psycopg 3 driver) and migrated with Alembic.
-- `DATABASE_URL` (required) is a Supabase pooler URI with the scheme changed to `postgresql+psycopg://` and `?sslmode=require` added. Both poolers work over IPv4; the direct connection is IPv6-only. `DATABASE_CONNECT_TIMEOUT` (default 5s) is optional.
-  - **The API on Vercel uses the transaction pooler (port 6543).** The session pooler (port 5432) gives each open client connection one of only 15 slots, and every warm Vercel instance, previews included, keeps its own pool open. On 3 November 2026 they took all 15 and the hourly sync couldn't connect. The transaction pooler shares server connections between transactions, so idle pools don't hold slots.
-  - **The GitHub workflows (sync and migrate) and a local `.env` use the session pooler (port 5432),** through the `DATABASE_URL` secret (in the `production` environment). Vercel's variable and that secret are separate, so no code picks a URL.
-  - **Previews use a separate staging project, `fpl-api-staging` (FPL-41),** so unmerged code never touches production data. Which URL goes where:
-
-    | Where | Database | Pooler |
-    |---|---|---|
-    | Vercel Production `DATABASE_URL` | production | transaction (6543) |
-    | Vercel Preview `DATABASE_URL` | staging | transaction (6543) |
-    | GitHub `production` environment secret `DATABASE_URL` | production | session (5432) |
-    | GitHub secret `STAGING_DATABASE_URL` | staging | session (5432) |
-    | Local `.env` | production | session (5432) |
-
-    Staging holds only test data and can be reset; the README's "Staging database" section covers setup and what to do if its schema gets ahead of `main`.
-  - The transaction pooler can't keep prepared statements between transactions, so the engine sets `prepare_threshold=None` (psycopg prepares statements automatically otherwise). It works on both poolers.
-- **Connection pool:** `DATABASE_POOL_SIZE` (default 3) and `DATABASE_MAX_OVERFLOW` (default 2). Keep them small: every Vercel instance has its own pool, and Supabase's free plan allows only a few server connections in total. Anything that connects through the session pooler holds one of its 15 slots for as long as the connection is open.
-- Never print or log `DATABASE_URL`: it contains the password.
-- `migrations/env.py` reads the URL from `config.py`, never from `alembic.ini`, and escapes `%` for configparser. If a URL is already set (as the tests do), it keeps that one.
-- **Schema** (design in the FPL-7 spike's "Spike outcome" comment in Linear): `teams`, `element_types`, `elements`, `events`, `fixtures` (every match of the season, from `/fixtures/`), `player_fixture_history` (one row per player per fixture, from `/element-summary/{id}/`; not filled yet, FPL-23), `element_event_points` (one row per player per finished gameweek: `total_points` and `minutes`, double gameweeks summed), `sync_runs`, the account tables written by the API, `profiles`, `user_teams`, `notes`, `deleted_accounts` and `teams_tracked` (see Accounts and sign-in), and `fpl_snapshots`, also written by the API (see Snapshots).
-  - `fixtures.started` is true from kickoff. FPL only sets `finished` once the gameweek's bonus points are confirmed, a day or more after the match, so "still to be played" means `started = false`.
-  - Column names are FPL's field names, so rows map 1:1 onto the Pydantic models. `elements` columns match `ElementResponse`, including which are `NOT NULL`.
-  - In the FPL tables, ids are FPL's, never generated (`autoincrement=False`). Decimals are `numeric`, timestamps are `timestamptz`.
-  - FPL rows are upserted, never deleted. `events.most_selected` and the other player ids deliberately have no foreign key, so a missing player can't fail a sync.
-- **Row-level security:** Supabase's Data API is off, and every table has RLS enabled with no policies, as a second layer. Autogenerate doesn't handle RLS, so every migration that creates a table must add `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`. `tests/test_db.py` fails if a table lacks it.
-- **New migration:** change `src/db/models.py`, then autogenerate against the test database, not Supabase: `DATABASE_URL=$TEST_DATABASE_URL alembic revision --autogenerate -m "..."`. Review the file and add RLS for new tables (Alembic runs Black on new revisions, so they're already formatted), run the tests, then open the PR. `migrate.yml` applies it to staging for the PR's preview and to production on merge (or, if that run is lost, before the next hourly sync); don't run `alembic upgrade head` against Supabase yourself.
-- SQLAlchemy calls are blocking: use plain `def` endpoints (FastAPI's thread pool), or `asyncio.to_thread` from async code, as `/healthcheck` does.
-- `/healthcheck` returns `{"status": "ok", "database": "ok" | "unavailable", "last_sync": <ISO timestamp> | null, "last_points_sync": <ISO timestamp> | null}`, always with 200, so a database outage doesn't make a host restart the app. `last_sync` is the last successful bootstrap sync (hourly); `last_points_sync` is the last gameweek whose points were stored, so it moves about weekly, a day or two after a gameweek's last match. If it's more than about 10 days old during the season, the points sync is failing and new transfers get null `net_points`.
-
-### Fetching
-- All FPL calls go through `src/util/fpl_client.py`, with a timeout and a descriptive `User-Agent` (`HEADERS`).
-- **Sync job:** `fetch_bootstrap_static()` and `fetch_fixtures()` use `FPL_REQUEST_TIMEOUT` (default 10s) and raise `requests` errors on network errors, error statuses (`raise_for_status()`) and invalid JSON. The job catches them, records the failed run, and leaves the previous data in place.
-- **Live endpoints:** `fetch_manager()`, `fetch_manager_transfers()`, `fetch_manager_history()`, `fetch_manager_picks()`, `fetch_event_live()`, `fetch_event_fixtures()` and `fetch_league_standings()` go through `_get_live_json()` and use the shorter `FPL_PROXY_TIMEOUT` (default 5s), because someone is waiting. They raise `FplNotFoundError` for FPL's 404 and `FplUnavailableError` for everything else, including timeouts, 429/5xx and FPL's HTML "the game is being updated" page.
-- **Leagues** (FPL-95): `/managers/{id}` includes the team's classic leagues from the same `entry/{id}/` response, so they cost no extra FPL call. Each is `id`, `name`, `kind` (`invitational` for FPL's `league_type` `x`, created by someone; `system` for `s`, like Overall, country or club), `size` (`rank_count`), `rank` and `last_rank`, ordered invitational first, then smallest first. Head-to-head leagues, and any league missing an id or name or of an unknown type, are left out rather than failing the response. The app builds "Your leagues" from its `mine` teams only; nothing about leagues is stored (Linear doc "Design: timeline, following and leagues").
-- **League standings** (FPL-96): `/leagues/{id}?page=` flattens FPL's `leagues-classic/{id}/standings/?page_standings=` to the league's `id`, `name`, `last_updated` (FPL's `last_updated_data`), `page`, `has_next` and `standings`: per team `entry` (the manager id, for `/managers/{id}`), `entry_name`, `rank`, `last_rank`, `total` and `event_total`, never `player_name`. **Teams that join a league aren't in FPL's standings until the next gameweek update**; until then they're only in FPL's `new_entries`, so for a new league that's every team. The response returns them as `new_entries` (`entry` and `entry_name`, never the names FPL sends with them) and `new_entries_has_next`, from the same call. Only their first page of 50: FPL pages them separately (`page_new_entries`), and a league rarely gains more in a gameweek. One FPL call per page of 50; `page` defaults to 1, capped at Postgres's integer maximum like ids (FPL answers 500 to a bigger one). A row FPL sends that we can't read is skipped and logged; a missing league id falls back to the path's, and a response with no league name is a 503. A page past the end is 200 with no standings, as FPL sends it. FPL's response has no league size: the app has it from the team's `leagues`. FPL's classic endpoint answers 404 for a head-to-head league, so those are `"League not found"` until head-to-head has its own story.
-- **Picks:** FPL only publishes a squad once the gameweek's deadline has passed. Without `?event=`, `/picks` first calls `fetch_manager()` for the manager's `current_event` (two FPL calls), and returns 404 if there's none yet. FPL's 404 for a gameweek with no picks (before the manager joined, or not yet played) is also "Manager not found".
-- **Live points:** `/events/{id}/live` flattens FPL's `event/{gw}/live/` (about 475KB, ~30 stats and a breakdown per player) to `id`, `total_points` and `minutes` per player (about 27KB). FPL returns an empty list for a gameweek that hasn't started (200 `[]`) and 404 outside 1–38 (`"Event not found"`).
-- **Live fixtures** (FPL-63): `/events/{id}/fixtures` is FPL's `fixtures/?event={gw}`, a gameweek's matches with live scores, as `FixtureResponse` plus `minutes` and `finished_provisional` (true at full time, a day or more before `finished`; clients show a match as over from it). FPL's `stats`, `code`, `pulse_id` and `provisional_start_time` are left out. Ordered by kickoff, then id; a match we can't read is skipped and logged (`fpl_rows.readable()`, shared with league standings), and an answer that isn't a list is `FplUnavailableError`. FPL answers 200 `[]`, never a 404, both for a gameweek it doesn't have and for one with every match postponed (gameweek 7 in September 2022), so on `[]` only the route checks the `events` table: a stored gameweek is 200 `[]`, anything else `"Event not found"`. Postponed matches with no gameweek aren't in it. `/api/fixtures` stays the stored copy, updated hourly.
-- **Net points per transfer** (`src/services/transfer_points.py`, FPL-33; design doc on the Linear issue): `/transfers` adds `is_churn`, `points_in`, `points_out` and `net_points` to each row, and costs one more FPL call (`/history`, for Free Hit gameweeks).
-  - In Wildcard and Free Hit weeks FPL's list records every swap tried (55 rows for one Free Hit), so each gameweek is reduced to its real changes: players bought more often than sold, and sold more often than bought. Rows pairing a real in with a real out are real transfers; the rest are `is_churn`. Real changes no row pairs are paired by position (earliest bought with earliest sold) and returned as rows the API builds, with the incoming player's buy `time`.
-  - A transfer for gameweek N covers N until the gameweek before the player is sold again, or the latest stored gameweek. A Free Hit transfer covers its gameweek only and doesn't end an earlier one. Points are null for churn, before N is stored, and when the database can't be read. Pairing needs positions from the database too, so without it a gameweek with unpaired changes isn't flagged as churn at all: the app shows FPL's rows for that week, rather than hiding real changes.
-- **Caching:** the live routes set `Cache-Control: s-maxage=..., stale-while-revalidate=...` on successful responses, so Vercel's CDN serves repeats without calling FPL: 60s for the manager, transfers, picks, live points and live fixtures, 300s for history and league standings. Errors send `no-store`. An in-memory cache would be useless on Vercel, whose instances don't share memory and scale to zero.
-  - **Synced routes are cached by default** (FPL-129): `cache_synced_data` in `src/middleware/cache.py` sets `SYNCED_CACHE` (`s-maxage=300, stale-while-revalidate=3600`) on a `GET` under `/api/` that answers 200 with no `Cache-Control`. The data changes hourly, so a copy up to 5 minutes old is fine, and for an hour after that the CDN serves the old copy while it refetches, and the full player list is one cached response for every user. A route that sets its own header keeps it (live routes, stale snapshots, `/api/me`); errors and `/healthcheck` get none, so a 503 isn't served after the database recovers. A new synced route is covered automatically; one that must stay fresh sets its own header. Vercel's CDN consumes `s-maxage` and sends clients `public, max-age=0, must-revalidate`, so check caching with `x-vercel-cache: HIT` on a repeat request, not the header.
-  - **CORS (FPL-69):** cached responses must carry `Vary: Origin` once CORS is added, or the CDN can serve a browser a copy cached without its CORS headers.
-- **Snapshots** (FPL-76): FPL takes its API down for an hour or more after each deadline while the game updates, longer than the CDN's `stale-while-revalidate` covers. So every live route (`/managers/...`, `/leagues/{id}`, `/events/{id}/live`, `/events/{id}/fixtures`) goes through `Live.call()`, which upserts each successful response into `fpl_snapshots`, one row per key (`managers/1/picks/9`, `managers/1/picks/current` without `?event=`, `leagues/5508/1`...). On `FplUnavailableError` it returns the saved copy as a 200 with `X-Data-Stale-As-Of` (its `fetched_at`, ISO 8601) and `Cache-Control: s-maxage=30`, so fresh data returns soon after FPL does; without one, the 503 from `main.py`. Clients can show "FPL is updating · showing data as of 13:28".
-  - What's saved is the response model's output, never FPL's raw JSON, so real names can't reach the table (`tests/test_snapshots.py` checks every route).
-  - 404s (`FplNotFoundError`) are never served from a snapshot. `/transfers` makes two FPL calls; either failing serves the whole saved copy. If its points read fails, `get_transfers()` rolls back the shared session so the save (with null points) still goes through.
-  - **What's saved is limited**, since the routes are public and the key comes from the URL: each route's `LiveRoute` has a `keep` rule. League standings are saved for page 1 only (the apps show the top 50), and not when empty (no standings and no new entries; a new league's teams are all in `new_entries`, so its page 1 is kept). Live points aren't saved as `[]` (a gameweek that hasn't started), nor live fixtures (every match postponed, or none readable), nor picks before the first deadline (404).
-  - **A stale `/picks` without `?event=` is the squad last saved**, so in the hour after a deadline it's the previous gameweek's. Clients must show the gameweek from the response body (`entry_history.event`), never assume it's the current one.
-  - A snapshot is validated against the current model when loaded; one that no longer fits (a model gained a required field) is skipped, giving the 503.
-  - Saving and loading never fail the request: a database error is logged, the fresh answer still returns, and a failed load is a 503. The write commits after the FPL calls, so no transaction is held across one. If the database is down, each live response waits up to `DATABASE_CONNECT_TIMEOUT` for the failed write.
-  - A new live route defines a `LiveRoute(model, cache, keep=...)`, takes `live: Live` and returns `live.call(key, route, fetch)`. A web client needs `X-Data-Stale-As-Of` in CORS's `Access-Control-Expose-Headers` (FPL-69).
-  - The hourly sync's last step, `purge_snapshots()`, deletes rows older than `snapshots.MAX_AGE` (30 days). A row is refreshed whenever its route reaches FPL, so what's left is teams and leagues someone has looked at in the last month.
-
-### Managers' real names
-- **They never leave the API** (product rule from FPL-11, done in FPL-45). FPL sends a manager's first and last name with their team, but FPL Social puts anonymous usernames and public comments next to teams, and a real name there makes harassment easy. Teams are shown by team name only. `player_region_name` (a country) stays.
-- Response models leave the name fields out, and Pydantic drops fields a model doesn't declare. `test_real_names_never_leave_the_api` checks every manager route's response for the fixture's name, and `tests/test_leagues.py` has one for league standings, which send `player_name`. Any new endpoint built from FPL data about managers must leave them out too, with the same kind of test.
-
-### Accounts and sign-in
-- **Accounts are optional** (product rule from FPL-11). FPL routes never read the `Authorization` header and never need an account, and viewing any team must stay that way. Accounts are for synced notes and following teams. Design doc: on FPL-11 in Linear.
-- **Sign-in is Supabase Auth** (email code for now; Apple and our own email domain come with FPL-55). The app sends the access token as `Authorization: Bearer`, and `CurrentUser` (`src/util/auth.py`) checks it locally against `{SUPABASE_URL}/auth/v1/.well-known/jwks.json`: the signature with `ES256`/`RS256` only (never the token's own `alg`, so HS256 and forged tokens fail), `exp`, `aud == "authenticated"` and `iss == {SUPABASE_URL}/auth/v1`. It returns the token's `sub` as a `UUID`. PyJWT's `PyJWKClient` caches the key set for 5 minutes and refetches early for an unknown key id, with a 30s cooldown. Don't turn on its `cache_keys`: that caches each key with no expiry, so a key revoked in Supabase would keep working on warm instances.
-- **Anonymous sign-ins stay off** in Supabase (the default). Supabase gives anonymous users `aud: "authenticated"` too, so `CurrentUser` would accept them and `/api/me` would create profiles for them. If they're ever wanted, reject `is_anonymous: true` in `CurrentUser` first.
-- **`SUPABASE_URL`** is optional. Unset, account routes return 503 and nothing else changes. It's per environment: previews accept only staging's tokens, so iOS Debug builds pointed at a preview sign in against staging.
-- **`profiles`** has one row per account (`id` = the Supabase user id, `created_at`), created by `ensure_profile()` on the first `GET /api/me`, or the first write: anything that writes an account table calls it first, since the app may save a team before it ever calls `/api/me`. It has no foreign key to `auth.users`, because the test database has no `auth` schema; deleting an account goes through the API (FPL-51). Account tables reference `profiles` with `ON DELETE CASCADE`.
-- **Deleting an account** (`DELETE /api/me`, FPL-51) removes the profile, which cascades to its notes and teams, and the Supabase user, through the Admin API with `SUPABASE_SECRET_KEY` (optional; unset, it's 503). All or nothing: the rows are deleted, Supabase is called, and only then is the transaction committed; if Supabase fails, `delete_account()` rolls back and the route returns 503, so a retry starts clean. A user Supabase no longer has counts as deleted, so a retry after a lost response is a 204, but only a 404 whose body has `error_code: "user_not_found"`: any other 404 (a wrong `SUPABASE_URL`, say) is a failure, or we'd delete the notes and confirm while the email stayed in Supabase. Failures are logged with the user id and the status, never the key or the body.
-  - **This is the one deliberate exception to "don't hold a transaction across an HTTP call"** (see `user_teams`): committing first could leave the person's email in Supabase. It's one call per account, ever, bounded by `supabase_admin.TIMEOUT` (3s connect, 5s read).
-  - **`deleted_accounts`** keeps the id of every deleted account, forever (only the id; Supabase never reuses them). A deleted user's token still verifies for up to an hour, and a client may still flush queued writes, so `ensure_profile()` refuses listed ids with `AccountDeletedError`, which `main.py` turns into 401 `"Not signed in"`. Reads with that token just come back empty.
-  - Both take a per-account advisory lock (`pg_advisory_xact_lock`), so a write racing a deletion waits for it and then sees `deleted_accounts`.
-  - **Known edge:** if Supabase deletes the user but answers after our 5-second read timeout, we roll back and return 503 while the Supabase user is gone. A retry within the hour (the token still works) finishes it; if the person never retries, their rows are stranded. Cleaning up profiles with no Supabase user is FPL-83.
-  - Apple token revocation is FPL-55's: there are no Apple users until Sign in with Apple exists.
-- **`user_teams`** (FPL-50) are the FPL teams on an account, keyed `(user_id, manager_id)`: `relation` is `mine` (teams they run; people often run several) or `following`, never both. The followed team's manager needn't have an account. `PUT /api/me/teams/{manager_id}` adds a team (checking it exists on FPL, one call) or switches its relation (no FPL call), as an upsert so a double tap can't collide. It ends its read transaction before calling FPL, so a slow FPL doesn't hold a pooler connection; do the same in any request that calls FPL after querying. Following has no product limit (FPL-98): a follow costs no FPL calls, because the timeline fetches each distinct team once per gameweek however many accounts follow it (Linear doc "Design: timeline, following and leagues"). Two limits only stop scripts: at most 1,000 teams per account (`TEAM_LIMIT`, 409) and 60 new teams per account per hour (`ADD_LIMIT`, 429 with `Retry-After`), counted from `created_at`, so switching a relation counts toward neither. Each team in the response has its `name` (FPL-101), from **`teams_tracked`**: one row per FPL team on any account, so a name is stored once however many accounts have the team. Adding a team saves or refreshes it from the FPL call the add already makes; switching a relation doesn't touch it. Teams without a row yet come back with `name: null`, and the hourly sync fills those in. Names aren't refreshed after that, so a team renamed on FPL keeps its old name here until it's added again or FPL-15's gameweek pass updates it; the team page (`/api/managers/{id}`, live) always shows the current one. So the app never needs `/api/managers/{id}` per team to show a list. It's the team's name, never the manager's.
-- **`notes`** (FPL-49) are synced across a user's devices. The fields match the iOS `Note` model: `text` (may be `""`), `gameweek` (nullable), `players` (JSONB `[{id, web_name}]`, names saved so a note shows without the player list), `transfer` (JSONB, transfer notes only), `manager_id` (nullable), and the device's `created_at` and `updated_at`.
-  - **The device makes the id and every write sends the whole note** (`PUT /api/me/notes/{note_id}`). The newer `updated_at` wins; an older or equal one keeps the stored note, and the response is always the stored note, so the device can tell it lost. Retries are harmless.
-  - **Deleting is a write:** `deleted_at` set on a `PUT` (or `DELETE ...?updated_at=`, the same thing). The row stays as a tombstone with its content cleared, so other devices learn about it, and an undo is a later `PUT` with `deleted_at` null. Device times decide everything, so a delete and its undo can't be reordered by clock differences between the phone and the server.
-  - **`GET /api/me/notes?since=<cursor>`** pages through changes by `synced_at` (server `clock_timestamp()` of each write), ordered by `(synced_at, id)` so notes written in the same instant aren't skipped; 500 per page, `more` when another is waiting. The last page's cursor is held `LOOKBACK` (5s) behind the clock, so a write still committing when the page was read comes through next time; the device may see a note twice and applies it by id. The cursor is opaque (base64 of the time and id).
-  - Tombstones are never purged yet.
-- **Never cached:** `never_cache_accounts` (`src/middleware/cache.py`) sets `Cache-Control: private, no-store` on every response under `/api/me`, errors included (except an unhandled 500, which Starlette sends from outside the middleware with no `Cache-Control`; the CDN doesn't cache it either), so Vercel's CDN can't serve one user's data to another. `test_every_account_response_is_private` walks every `/api/me` route and method; a new account route is covered automatically.
-
-### Error responses
-Use these status codes consistently:
-
-| Situation | Status |
-|---|---|
-| No bootstrap sync has succeeded yet (`FplDataUnavailableError`), or the database is unreachable (`OperationalError`) | **503** `"FPL data is currently unavailable"`, from the handlers in `main.py` |
-| A live call to FPL fails (`FplUnavailableError`) | **200** with the last saved copy, `X-Data-Stale-As-Of` and `Cache-Control: s-maxage=30` (see Snapshots); with none saved, **503** `"FPL is unavailable right now"`, with `Cache-Control: no-store` |
-| Single-item lookup or filter finds nothing | **404** with a resource-specific detail, e.g. `"Team not found"`. Unknown FPL managers: `"Manager not found"`, gameweeks FPL doesn't have on `/live` and `/fixtures`: `"Event not found"`, and unknown or head-to-head leagues: `"League not found"`, all with `no-store` |
-| Collection endpoint with no items | **200** with `[]` |
-| Invalid path parameter: not an integer, 0 or less, or over Postgres's `integer` maximum (see `src/routers/params.py`) | **422** (FastAPI default) |
-| Account route without a valid sign-in token (missing, malformed, expired, wrong `aud`/`iss`, forged, or HS256) | **401** `"Not signed in"`, with `WWW-Authenticate: Bearer` |
-| Account route when `SUPABASE_URL` isn't set, or Supabase's keys can't be fetched | **503** `"Sign-in is unavailable right now"` |
-| A write with the token of an account that's been deleted | **401** `"Not signed in"`, with `WWW-Authenticate: Bearer` |
-| `DELETE /api/me` when Supabase fails or `SUPABASE_SECRET_KEY` isn't set (nothing is deleted) | **503** `"Couldn't delete your account right now"` |
-| Adding a team to an account that already has 1,000 | **409** `"Team limit reached"` |
-| Adding a 61st new team within an hour | **429** `"Too many teams added, try again later"`, with `Retry-After` (seconds) |
-| A note that doesn't exist or is another user's (never 403, so ids reveal nothing) | **404** `"Note not found"` |
-| A `?since=` cursor the API didn't issue | **422** `"Invalid cursor"` |
-
-### Logging
-- Use `logging.getLogger(__name__)` with `%s` placeholders, e.g. `logger.info("msg: %s", value)`. Never pass extra arguments without a placeholder: pytest's log capture raises on that.
-
-### Hosting
-- Don't add a `pyproject.toml`: Vercel installs dependencies from it instead of `requirements.txt` (it took production down on 7 November).
-- Production runs on **Vercel** (Hobby plan: personal, non-commercial use only), decided in the FPL-25 spike. Vercel's zero-config FastAPI support serves the `app` in `main.py`; there's no Vercel-specific code.
-- `vercel.json` pins the region to `cle1` (Cleveland, AWS us-east-2, next to Supabase), and `.python-version` pins Python 3.13. Keep that file in step with CI's Python.
-- Vercel's only required environment variable is `DATABASE_URL` (marked Sensitive), a **transaction pooler** URI (port 6543): production's for Production, staging's for Preview (see Database). `SUPABASE_URL` is set for Preview (staging's project URL); Production gets production's with FPL-55. Pushes to `main` deploy to production; PRs get preview URLs, which are public (Vercel Authentication is off for previews so the iOS app can test against them).
-- Instances scale to zero, so the first request after idle has a cold start of a second or two. An always-warm instance needs Vercel Pro.
-- The `Dockerfile` (`python:3.13-slim`, runtime dependencies only, non-root) is for local runs and a future move to a container host such as Cloud Run, the fallback if the app goes commercial. Vercel doesn't use it. `.dockerignore` keeps `.env`, `env/`, tests and migrations out of the image; use `**/` patterns so they match in subfolders.
-
-## Testing
-
-- pytest with pytest-cov. `pytest.ini` enforces **≥95% coverage** on `src` and `main`, counting branches as well as lines (`--cov-branch`, so an untested `else` counts as a gap), currently at 100%.
-- `tests/conftest.py`:
-  - Sets the required env vars before importing `src`, so tests don't need a `.env` file (e.g. in CI).
-  - FPL-shaped builders (`make_team()`, `make_element()`, `make_event()`, `future_event()`, `ELEMENT_TYPES`) are shared by the API and sync tests.
-  - `seeded_session` loads a small dataset into the test database through the sync job's `to_row()`: 2 teams, 4 positions, 3 players (Saka, Haaland, Palmer), gameweeks 8 to 10 and a successful sync run. `client` is a `TestClient` whose requests use that session. Change data in a test by editing rows in `seeded_session`.
-  - The autouse fixture `block_network` makes any real `requests.get` (FPL), `requests.delete` (Supabase's Admin API) or `requests.request` (`manage_test_users`) call fail the test. Mock it with `monkeypatch` when a test needs a response; `tests/test_account_deletion.py`'s `supabase` fixture does it for the Admin API.
-  - The autouse fixture `block_database` does the same for `database.engine.connect`. Patch `database.is_database_reachable` (or `engine.connect`) when a test hits `/healthcheck`.
-  - `SUPABASE_URL` is forced empty, so sign-in is off. The `jwks` fixture turns it on with a local EC key pair and a fake JWKS client, and `make_token()` signs Supabase-shaped tokens with it. For account routes, use `signed_in`: `signed_in()` returns the headers for `USER_ID`, `signed_in(other_id)` for anyone else. Tests never call Supabase.
-  - Database tests use a real Postgres from `TEST_DATABASE_URL` (in `.env` locally, a service container in CI). `db_engine` migrates it from scratch once per run, and `db_session` rolls back each test's changes, even after `commit()`. The fixture refuses a Supabase URL. Without `TEST_DATABASE_URL`, the database tests fail with setup instructions.
-- Routes are tested with `fastapi.testclient.TestClient` (the `client` fixture). Async code is tested with `asyncio.run(...)`, so pytest-asyncio isn't needed.
-- `config.py` import-time behavior is tested by running it as a fresh module (`load_fresh_config`), so the real module stays untouched.
-- Every new code path needs tests, including its error paths.
-
-## Environment
-
-- Python **3.10+**. 3.9 is end-of-life, and GitHub's Ubuntu 26.04 runners don't provide it.
-- `.github/workflows/ci.yml` runs on pull requests and on pushes to `main` (other branch pushes don't run CI until a PR is opened), on Python 3.13. A newer push to the same PR cancels the run in progress. Four jobs:
-  - **Pylint** lints, **Format** runs `black --check --diff .` (failing if any file would change), and **Tests** runs pytest with the 95% coverage gate against a Postgres 17 service container. They show as separate checks. Format installs only the Black version pinned in `requirements-dev.txt`.
-  - Each writes a summary to the run page and to a Markdown file uploaded as an artifact: test pass rate and failures via `.github/scripts/summarize_tests.py`, coverage via `.github/scripts/summarize_coverage.py` (FPL-65: the total, the change against `main`, and the PR's changed files with untested lines; `main`'s pushes save `coverage.xml` as the `coverage-main` artifact for PRs to compare against, so the Tests job has `actions: read`; the changed files come from `gh pr diff`, with `pull-requests: read`), pylint score and issues via `.github/scripts/summarize_pylint.py`, and the files Black would change (with the diff, collapsed) via `.github/scripts/summarize_black.py`. All write through `summary_output.write_markdown()`.
-  - **PR comment** (pull requests only, after the other jobs, even if they fail) posts one comment with the summaries and edits it on later pushes. It finds the comment by the hidden `<!-- ci-report -->` marker, and is the only job with `pull-requests: write`.
-- Two more workflows use the Supabase databases. Each has a `production` job (`DATABASE_URL` secret, concurrency group `database`) and a `staging` job (`STAGING_DATABASE_URL`, group `staging-database`), so the two databases never wait on each other and a sync never runs mid-migration on either. **Production jobs run only from `main`** (`if: github.ref == 'refs/heads/main'`): started by hand from another branch, a workflow touches staging only.
-  - `sync-bootstrap.yml` runs the bootstrap sync hourly and on manual dispatch. GitHub's own scheduler skips most hourly runs, so a `pg_cron` job in Supabase starts the workflow at :17 every hour through GitHub's workflow dispatch API, with a fine-grained token kept in Supabase Vault. The workflow's `schedule` (cron `17 * * * *`) stays as a backup. The trigger lives only in Supabase, not in a migration (the test databases lack `pg_cron`, `pg_net` and Vault); the README's "Hourly trigger" section has the SQL and the token's expiry date.
-  - `migrate.yml` runs `alembic upgrade head` on pushes to `main` that touch `migrations/`, `src/db/` or `alembic.ini`, and on manual dispatch. Its staging job also runs on pull requests touching those paths (or the workflow itself), then syncs staging with the PR's code, so the preview has the new schema and data. Migrations reach Supabase this way, not from a laptop.
-  - **Migrate before each sync** (FPL-124): the hourly sync's `migrate` job calls `migrate.yml` (`workflow_call`, with `from_sync: true`), and its production job `needs` it. `alembic upgrade head` does nothing when the schema is current, so normally this only adds up to a minute per sync. It exists because a push run can be lost: on 11 November GitHub never started the run for a merge's migration, and production ran new code on the old schema for 21 hours. Now the next sync applies it.
-    - **Production only.** `migrate.yml`'s staging job checks `!inputs.from_sync`: with a migration PR open, staging is at a revision `main` doesn't have, and `alembic upgrade head` from `main` would fail. In a called workflow `github.event_name` and `github.ref` are the caller's, which is why the input exists; a sync dispatched from a branch skips the migrate job and the production sync together.
-    - **A warning annotation, "Migration applied by the sync",** shows on the run page when a called run changed the revision: the push run for that migration was lost. It's only seen by opening the run (the sync still succeeds, so nothing else alerts); healing is what matters, and if lost push runs recur, it could open an issue like the smoke test does.
-    - **If a migration fails, the production sync is skipped**, since its code needs that schema. It fails again every hour until fixed, and the data goes stale. The signs are GitHub's failure email and `/healthcheck`'s `last_sync` getting old, which opens a "Production sync is stale" issue (`stale-sync-alert.yml`).
-    - **Limits:** it heals within an hour, not at once, so until the next sync production can run new code on the old schema; keeping schema changes backward compatible is FPL-125. The migrate and sync jobs share the `database` group, and GitHub keeps one waiting job per group, cancelling an older waiting one: a push migration cancelled that way is applied by the next sync, and a sync cancelled that way loses an hour. The calling job sets no `concurrency` of its own: the same group there and in the called job would deadlock.
-  - **Production's `DATABASE_URL` is in the GitHub Environment `production`, not a repository secret** (FPL-105). Its deployment branch rule allows `main` only, so the environment enforces what the `if: main` guards only ask for: a branch that edits its copy of a workflow still can't read the secret. The jobs use `environment: {name: production, deployment: false}`, which gives them the secrets without recording a deployment (otherwise the sync would add one every hour). `STAGING_DATABASE_URL` stays a repository secret, since `migrate.yml`'s staging job runs on pull requests. Secrets go on the steps that use them, never the job's `env`, so `pip install` never sees them.
-  - The hourly sync runs its staging job too, which keeps staging's data current and the free project from pausing. A PR migration that main's sync code can't handle (e.g. a new `NOT NULL` column) makes the staging sync fail until the PR merges; production is unaffected.
-  - Each job needs only its database secret; every other setting has a default. Scheduled workflows only run from `main`.
-- **`test-users.yml`** (FPL-85, by hand, from `main`) runs `src/jobs/manage_test_users.py` against staging: `create` makes a confirmed test user with the shared password (or resets an existing one's), `delete` removes one, `clear` (with `confirm: CLEAR`) removes every `@fplsocial.dev` user. Deleting goes through `delete_account()`, like `DELETE /api/me`, so the user's teams and notes go too. It refuses unless both `SUPABASE_URL` and `DATABASE_URL` are staging's (the project ref `ltasgegihkapmdqlkaov`), and refuses emails outside `@fplsocial.dev`. Secrets: `STAGING_SUPABASE_URL`, `STAGING_SUPABASE_SECRET_KEY` and `STAGING_TEST_USER_PASSWORD` in the `main`-only `staging-admin` environment (FPL-105), and the repository's `STAGING_DATABASE_URL`. It's a workflow, not an endpoint, so the secret key never reaches Vercel or the apps.
-- **`smoke-test.yml`** (FPL-87) runs when Vercel finishes a deployment, preview or production, through the `vercel.deployment.success` `repository_dispatch` event that Vercel's GitHub integration sends. Vercel only sends it with **`repository_dispatch` events** turned on in the project's Git settings (it was off when FPL-87 was built); without it the workflow never runs and no status appears. `.github/scripts/smoke_test.sh` requests the deployment's `/healthcheck` (expects `"status"` and `"database"` both `"ok"`) and `/api/events` (a non-empty list), with retries for a cold start. The workflow posts the result as a **Smoke test** commit status on the deployed commit, so a broken preview shows on its PR before merge. GitHub files the run itself under `main`'s latest commit, so a broken preview fails only its status, not the run. A broken production deployment fails the run and opens a "Production smoke test failed" issue (or comments on the open one), since GitHub's failure email would go to Vercel's app. It requests the deployment's own URL, so turning on Vercel Authentication for previews would fail every check with 401. CI can't catch this itself: it installs from `requirements.txt`, while Vercel builds its own way (FPL-86). GitHub runs `repository_dispatch` only from `main`'s copy of the workflow, so a change to it takes effect after merge. It can also be started by hand with any URL (no status posted), or run locally: `.github/scripts/smoke_test.sh <url>`.
-- **`stale-sync-alert.yml`** (FPL-131) reads production's `/healthcheck` hourly (cron `43 * * * *`) and keeps one **"Production sync is stale"** issue open while `last_sync` is more than 3 hours old, the database isn't `ok`, there's no successful sync, or `/healthcheck` doesn't answer. GitHub emails the new issue. Nothing else watches `last_sync`, and the sync can stop silently: an expired trigger token (FPL-40), pg_cron failing, or a migration failing before each sync (FPL-124).
-  - **A backstop, not a pager.** GitHub starts only a few scheduled runs a day (the sync's backup schedule ran 1 to 4 times a day in November 2026), so it runs hourly to get some through, and detection can still take hours.
-  - It finds the open issue by its exact title, like the smoke test, listing open issues rather than using `--search`, whose index can miss an issue opened moments ago. While the problem lasts, scheduled runs comment at most once a day; a manual run always comments. When the sync recovers, it comments and closes the issue.
-  - **The run passes either way:** the issue is the alert, and a failed run would email every hour. Its token has `issues: write` only, so it has no checkout: the logic is inline in the workflow. It needs no secrets, since `/healthcheck` is public.
-  - **Testing:** run it by hand with `max_age_hours` lowered (e.g. `0.1`) to open the issue, again to see a comment, then with the default to close it. `workflow_dispatch` only works once the workflow is on `main`.
-  - **Its own blind spot:** GitHub skips scheduled runs, and disables schedules after 60 days without activity in the repo, so a quiet repo can lose both the sync's backup schedule and this check. The Runbook says so.
-- `.pylintrc` turns off docstring checks and `too-few-public-methods`, and ignores `alembic.context` and `alembic.op` for member checks because they're populated at runtime. It sets `max-line-length=88`, the limit Black uses by default. Black runs with its defaults: the repo deliberately has no `pyproject.toml` (see Hosting). Migration files disable `invalid-name`, because Alembic requires names like `revision` and file names start with the revision id, and `duplicate-code`, because every migration repeats the same column definitions (the template in `migrations/script.py.mako` adds both). Test files disable `redefined-outer-name` (pytest fixtures) at the top of the file. Fix any other warnings rather than silencing them.
-- **Black is the formatter** (FPL-82): run `black .` before committing, and CI fails on unformatted code. The "Surgical changes" rule still holds for unrelated code, but formatting your own changes with Black is expected. Black doesn't split long strings, comments or docstrings, so rewrap those by hand to stay within 88.
-- **`.git-blame-ignore-revs`** lists formatting-only commits (the one-time Black reformat, `c144231`), so `git blame` shows the commit that actually wrote each line. GitHub reads it automatically; locally it needs `git config blame.ignoreRevsFile .git-blame-ignore-revs` once. A future formatting-only commit gets its full hash added there, in a separate commit after it lands on `main` (PRs merge with a merge commit, so the hash survives; a squash would break it).
-- **Actions are pinned by full commit hash**, with the release as a comment (`actions/checkout@<40-character hash> # v5.1.0`), never by tag: a tag can be moved to different code, and these jobs hold the database URLs and Supabase's secret key. Add a new action the same way. Dependabot (`.github/dependabot.yml`) checks weekly, waits 7 days after a release, and opens one PR for minor and patch updates (a separate PR per major update), updating hashes and comments together; it doesn't update Python packages. Its PRs skip `migrate.yml`'s staging job and CI's PR comment, since Dependabot's runs get no repository secrets and a read-only token.
-- **`gitleaks.yml`** (FPL-123) scans the repo's full history for secrets with gitleaks on every PR and push to `main`, as the **Gitleaks** check. GitHub's secret scanning and push protection only know providers' key formats; gitleaks also finds private keys and, through custom rules in `.gitleaks.toml`, two things its default rules miss: a password in a Postgres URL (`postgres-url-password`) and a Resend API key (`resend-api-key`). The Postgres rule ignores weak hand-set passwords like `password1` (below its entropy limit, kept so `postgres:postgres` local URLs pass); Supabase's generated ones are caught. It downloads the release binary pinned by `GITLEAKS_VERSION` and checked against `GITLEAKS_SHA256` in the workflow; Dependabot can't update a binary, so bump both by hand. Findings are redacted, since the logs are public. Run it locally with `gitleaks git --redact .`; `gitleaks dir .` also scans the gitignored `.env` and flags its real URLs, which is expected. Locally, `gitleaks git` scans every ref, so `git fetch --prune` first: a deleted branch's remote-tracking ref (like a secret-scan test PR's) is still scanned until it's pruned.
-  - **On a finding, rotate the secret first.** The repo is public, so it was exposed the moment it was pushed, and removing it from the code or history doesn't undo that. Then remove it from the code.
-  - **Removing it doesn't clear the check:** the scan covers the full history, so the commit that added the secret still fails it. On a PR branch, rewrite the branch to drop that commit, then force-push. Once a secret reaches `main` (PRs merge with merge commits, so it stays in history), every PR fails until its fingerprint is in `.gitleaksignore`, after the secret is rotated. The fingerprint is on the finding in the job's log (`<commit>:<file>:<rule>:<line>`).
-  - **A false positive** goes in `.gitleaks.toml` as narrowly as possible: an `[[allowlists]]` entry limited to its path and a regex for the value, or its fingerprint in `.gitleaksignore`. Never turn a rule off. Test URLs' passwords stay short (`fpl`, `pw`) so the Postgres rule ignores them.
-- Runtime dependencies are pinned in `requirements.txt`; test and lint tools in `requirements-dev.txt`, which includes it.
+- 503 `"FPL data is currently unavailable"` before the first sync or with the database down (handlers in `main.py`).
+- Live route with FPL down: 200 with the saved copy and `X-Data-Stale-As-Of`, else 503 `"FPL is unavailable right now"`.
+- 404 with a resource-specific detail (`"Team not found"`, `"Event not found"`, `"League not found"`, `"Manager not found"`) and `no-store`. A collection with nothing in it is 200 `[]`.
+- 401 `"Not signed in"` with `WWW-Authenticate: Bearer` for a missing or bad token. The rest of the account codes are in `accounts.md`.
