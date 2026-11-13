@@ -6,9 +6,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
 from src.util import database
 from src.services.profiles import AccountDeletedError
-from src.util.auth import ACCOUNT_CACHE, not_signed_in
+from src.util.auth import not_signed_in
 from src.util.database import FplDataUnavailableError
 from src.util.fpl_client import FplUnavailableError
+from src.middleware.cache import cache_synced_data, never_cache_accounts
 from src.routers import routers
 
 logger = logging.getLogger(__name__)
@@ -19,18 +20,8 @@ app = FastAPI(title="Fpl API")
 
 UNAVAILABLE = {"detail": "FPL data is currently unavailable"}
 
-
-@app.middleware("http")
-async def never_cache_accounts(request: Request, call_next):
-    """Mark every response under /api/me private, errors included.
-
-    These hold one user's data. A shared cache header on one, from a route or a
-    future default, would let Vercel's CDN serve it to someone else.
-    """
-    response = await call_next(request)
-    if request.url.path == "/api/me" or request.url.path.startswith("/api/me/"):
-        response.headers["Cache-Control"] = ACCOUNT_CACHE
-    return response
+app.middleware("http")(never_cache_accounts)
+app.middleware("http")(cache_synced_data)
 
 
 @app.exception_handler(FplDataUnavailableError)

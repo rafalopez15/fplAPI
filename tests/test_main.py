@@ -17,6 +17,7 @@ def test_healthcheck(monkeypatch):
     )
     response = TestClient(app).get("/healthcheck")
     assert response.status_code == 200
+    assert "cache-control" not in response.headers
     assert response.json() == {
         "status": "ok",
         "database": "ok",

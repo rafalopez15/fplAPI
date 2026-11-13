@@ -31,7 +31,7 @@ paths:
 - **End the read transaction before calling FPL** in a request that queried first, so a slow FPL doesn't hold a pooler connection.
 - A row FPL sends that we can't read is skipped and logged (`fpl_rows.readable()`), never a 500.
 
-## Snapshots and caching
+## Snapshots
 
 - Every live route goes through `Live.call(key, route, fetch)` with a `LiveRoute(model, cache, keep=...)`. It saves each good answer to `fpl_snapshots`; on `FplUnavailableError` it serves the saved copy as 200 with `X-Data-Stale-As-Of` and `s-maxage=30`, else 503.
 - **Save the response model's output, never FPL's raw JSON**, so real names can't reach the table (`tests/test_snapshots.py` checks every route).
@@ -39,7 +39,6 @@ paths:
 - A snapshot is validated against the current model when loaded. Adding a required field to a live model makes every old snapshot unusable (503 while FPL is down) until it's refreshed, so make new fields optional.
 - `keep` limits what public routes can write: league standings page 1 only and not empty; no `[]` live points or fixtures; no picks before the first deadline.
 - A stale `/picks` without `?event=` is the last squad saved, so clients must read the gameweek from `entry_history.event`.
-- Cache headers on success: `s-maxage=60` (manager, transfers, picks, live points, live fixtures) or 300 (history, league standings), with `stale-while-revalidate`. Errors send `no-store`. No in-memory caches: Vercel instances don't share memory.
 
 ## Route behaviour
 

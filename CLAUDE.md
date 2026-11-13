@@ -2,7 +2,7 @@
 
 FastAPI service serving Fantasy Premier League (FPL) data under `/api`, from a Postgres copy of FPL's API that an hourly job keeps current. The FPL Social iOS app is its main client.
 
-Rules for one area load from `.claude/rules/` when you open its files: `database.md`, `live-routes.md`, `accounts.md`, `sync.md`, `testing.md`, `workflows.md`. How-tos for people are in `README.md`; decisions and their history are in Linear (team FPL Social, Architecture doc).
+Rules for one area load from `.claude/rules/` when you open its files: `database.md`, `live-routes.md`, `caching.md`, `accounts.md`, `sync.md`, `testing.md`, `workflows.md`. How-tos for people are in `README.md`; decisions and their history are in Linear (team FPL Social, Architecture doc).
 
 ## Working guidelines
 
@@ -39,6 +39,7 @@ colima start && docker start fplapi-test-db  # local test database (README)
 - **Endpoints are plain `def`**, never `async def`: SQLAlchemy calls block. From async code use `asyncio.to_thread`.
 - **Id path parameters** use the types in `src/routers/params.py`, never a bare `int`, so an id Postgres can't store is a 422, not a 500.
 - **Database routes** take `session: DataSession` (503 until a sync has succeeded). Live and account routes take a plain `get_session`.
+- **Synced `GET` routes are CDN-cached by default** (`cache_synced_data`). A route that must stay fresh sets its own `Cache-Control`.
 - **Settings:** secrets and per-environment values live in `.env`, read in `src/util/config.py`. A new setting must be optional with a default, or the deployed API won't start until it's set in Vercel. Keep `.env.example` in step. FPL URLs are constants in `fpl_client.py`, not settings.
 - **Never log or print `DATABASE_URL`** or any secret.
 - **Logging:** `logging.getLogger(__name__)` with `%s` placeholders; extra arguments without a placeholder make pytest's log capture raise.
@@ -52,7 +53,7 @@ colima start && docker start fplapi-test-db  # local test database (README)
 - **Managers' real names never leave the API** (why: FPL-11, FPL-45). Response models leave them out; any new route built from FPL manager data needs the same test as `test_real_names_never_leave_the_api`.
 - **Accounts are optional.** FPL routes never read `Authorization`, and viewing any team never needs an account.
 - **A team's leagues on `/managers/{id}` are public by decision**, because FPL exposes the same list. Revisit only if FPL accounts get linked to app accounts.
-- **`/api/me` responses are never cached** (`private, no-store` from `main.py`'s middleware), so the CDN can't serve one user's data to another.
+- **`/api/me` responses are never cached** (`private, no-store` from `never_cache_accounts` in `src/middleware/cache.py`), so the CDN can't serve one user's data to another.
 
 ## Status codes
 
