@@ -36,6 +36,7 @@ paths:
 ## Actions and gitleaks
 
 - **Pin actions by full commit hash** with the release as a comment (`@<hash> # v5.1.0`), never a tag. Dependabot updates them.
+- **Python packages get Dependabot security-update PRs only** (repo settings, not `dependabot.yml`), when a pinned version has an advisory. Version bumps stay manual. Don't add a `pip` entry to `dependabot.yml`: it would turn on weekly version-update PRs (why: FPL-111).
 - `gitleaks.yml` scans full history. Its binary is pinned by `GITLEAKS_VERSION` and `GITLEAKS_SHA256`, bumped together by hand.
 - **On a finding, rotate the secret first**: the repo is public. On a PR branch, rewrite the branch to drop the commit. Once on `main`, add the fingerprint (`<commit>:<file>:<rule>:<line>`, from the job log) to `.gitleaksignore` after rotating.
 - A false positive gets the narrowest allowlist in `.gitleaks.toml` (path plus value regex) or its fingerprint. Never turn a rule off. Keep test URL passwords short (`fpl`, `pw`).
