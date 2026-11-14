@@ -10,7 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import ProgrammingError
 from src.db.models import Base, FplSnapshot, Note, Profile, UserTeam
 from src.services import snapshots
-from src.util import fpl_client, supabase_admin
+from src.util import database, fpl_client, supabase_admin
 from tests.conftest import USER_ID, make_fpl_manager
 from tests.test_snapshots import PAYLOADS, ROUTES
 
@@ -146,6 +146,12 @@ def test_synced_routes_read_the_data(client, path):
     response = client.get(path)
     assert response.status_code == 200
     assert response.json()
+
+
+def test_healthcheck_reads_the_last_syncs(as_api_role):
+    # /healthcheck opens its own session, so this runs its query directly.
+    assert database.last_successful_sync(as_api_role, "bootstrap") is not None
+    assert database.last_successful_sync(as_api_role, "event_points") is None
 
 
 @pytest.mark.usefixtures("fpl")
