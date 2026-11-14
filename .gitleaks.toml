@@ -1,4 +1,4 @@
-# Default rules plus two they miss. Allowlist false positives narrowly, never by
+# Default rules plus three they miss. Allowlist false positives narrowly, never by
 # turning a rule off.
 [extend]
 useDefault = true
@@ -22,3 +22,12 @@ regex = '''\b(re_(?:[A-Za-z0-9]{8,}_)?[A-Za-z0-9]{20,})\b'''
 secretGroup = 1
 entropy = 3.0
 keywords = ["re_"]
+
+# Caught wherever it is, not only next to a word like "key". Skips the docs'
+# sb_secret_... placeholder. Same rule as fpl-social's.
+[[rules]]
+id = "supabase-secret-key"
+description = "Supabase secret key"
+regex = '''\b(sb_secret_[A-Za-z0-9_-]{20,})\b'''
+secretGroup = 1
+keywords = ["sb_secret_"]
