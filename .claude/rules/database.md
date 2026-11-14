@@ -7,6 +7,7 @@ paths:
   - "src/util/config.py"
   - "tests/test_db.py"
   - "tests/test_database.py"
+  - "tests/test_api_role.py"
 ---
 
 # Database
@@ -35,6 +36,8 @@ paths:
 ## Migrations
 
 - **Every migration that creates a table adds `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`.** Autogenerate doesn't, and `tests/test_db.py` fails without it.
+- **The deployed API connects as `fplapi_app`, not the owner** (why: FPL-44). A migration that adds a table the API uses grants it only the commands the code runs and adds a policy `FOR ALL TO fplapi_app USING (true) WITH CHECK (true)`: RLS is on, so without one the role sees no rows. List the table in `PRIVILEGES` in `tests/test_api_role.py` (an empty set if the API doesn't use it). Workflows and jobs stay `postgres`.
+  - **A table the API inserts into with a generated id:** add a test that inserts as the role. An `Identity()` column needs only `INSERT`; a `serial` column or separate sequence also needs `GRANT USAGE` on the sequence.
 - New migration: change `src/db/models.py`, then autogenerate against the test database, never Supabase: `DATABASE_URL=$TEST_DATABASE_URL alembic revision --autogenerate -m "..."`. Review it, add RLS, run the tests.
 - **Never run `alembic upgrade head` against Supabase.** `migrate.yml` applies it: staging on the PR, production on merge (or before the next hourly sync if that run is lost).
 - Keep schema changes backward compatible: new code can briefly run on the old schema (FPL-125).

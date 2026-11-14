@@ -68,7 +68,7 @@ The API uses a PostgreSQL database hosted on Supabase's free plan.
 Keep in mind:
 - Never commit `DATABASE_URL` or paste it anywhere public: it contains the password.
 - Free projects pause after a week without activity. Restore the project from the Supabase dashboard if that happens.
-- If you reset the database password in Supabase, update `DATABASE_URL` in `.env`, in Vercel and in the GitHub `production` environment.
+- If you reset the database password in Supabase, update `DATABASE_URL` in `.env` and in the GitHub `production` environment. Vercel doesn't use it: the API connects as its own role (see [The API's database role](#the-apis-database-role)).
 
 ## 🔀 Migrations (Alembic)
 Schema changes are versioned migrations in `migrations/versions/`. Alembic reads the connection string from `DATABASE_URL`, so **commands run against whichever database `.env` points at**. Run them against the local test database (`DATABASE_URL=$TEST_DATABASE_URL alembic ...`). Supabase is migrated only by the **Migrate database** workflow: staging on the PR, production on merge, with the hourly sync held off while it runs. Don't run `alembic upgrade head` against Supabase yourself.
@@ -257,7 +257,7 @@ In the Vercel project, under **Settings → Environment Variables**, set:
 
 | Variable | Value |
 |---|---|
-| `DATABASE_URL` | Production: production's **transaction pooler** URL. Preview: [staging's](#staging-database-for-previews). Mark both **Sensitive**. |
+| `DATABASE_URL` | Production: production's **transaction pooler** URL, as [the API's role](#the-apis-database-role). Preview: the same for [staging](#staging-database-for-previews). Mark both **Sensitive**. |
 | `SUPABASE_URL` | Optional. Preview: staging's project URL (`https://<ref>.supabase.co`). Production: production's, once its sign-in is set up (FPL-55). Not secret. |
 | `SUPABASE_SECRET_KEY` | Optional, for account deletion. Preview: staging's secret key. Production: production's, with FPL-55. Mark it **Sensitive**. |
 
@@ -272,6 +272,19 @@ Vercel uses the transaction pooler, not the session pooler in `.env`. The sessio
 ```
 
 The first request after a few idle minutes takes a second or two while Vercel starts an instance. Migrations and the hourly sync still run from GitHub Actions, not Vercel.
+
+### The API's database role
+The deployed API connects as `fplapi_app`, not `postgres`, so a bug in a route can't change the schema, write FPL data or reach tables the API doesn't use (FPL-44). A migration creates the role with only the grants the API's queries need; its password is set by hand on each Supabase project. The GitHub workflows and a local `.env` stay on `postgres`.
+
+To set or change its password:
+1. Connect to the project as `postgres` through the session pooler with `psql`, and run `\password fplapi_app`. Avoid the SQL editor, which may keep the password in its history. Without a local `psql`, the test database container has one: `docker exec -it fplapi-test-db psql "<session pooler URL, starting postgresql://>"`.
+2. **Wait for the transaction pooler.** It can take more than 5 minutes to accept a new password. Retry until this prints a count several times in a row:
+   ```bash
+   psql "postgresql://fplapi_app.<project-ref>@<pooler-host>.pooler.supabase.com:6543/postgres?sslmode=require" -c "select count(*) from events"
+   ```
+3. Update Vercel's `DATABASE_URL` for that environment (`fplapi_app.<project-ref>` and the new password, port 6543) and redeploy.
+
+Changing the password breaks the deployed API until step 3, so do the three steps together. To roll back, point `DATABASE_URL` at `postgres` again: the role doesn't change anything else.
 
 ## ✅ Tests and linting
 The database tests run against a local Postgres in Docker, never Supabase. On macOS, [Colima](https://github.com/abiosoft/colima) is a lightweight way to run Docker:
