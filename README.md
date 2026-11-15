@@ -115,7 +115,7 @@ If the sync stops, the **Stale sync alert** workflow notices, though GitHub runs
 Every call to FPL's API, from the API or a sync job, writes one row to `fpl_calls` (FPL-90): when, from where (`source`), which FPL endpoint, which of our routes or sync steps made it (`caller`), which client (`client`), how FPL answered (`outcome`, `status_code`), how long it took and how big the answer was. Endpoints and callers are templates such as `entry/{id}/history`, so no manager or user id is stored. A failed write never fails the call.
 
 - `source` is `api-production` or `api-preview` on Vercel (from its built-in `VERCEL_ENV`), `sync-production` or `sync-staging` from the workflows (they set `FPL_CALL_SOURCE`), and `local` otherwise.
-- `client` comes from the request's `User-Agent`: the iOS app's `FPL/…` is `ios`; our checks send `fpl-social-smoke-test` (`smoke_test.sh`) and `fpl-social-contract` (fpl-social's contract fixtures script); anything else is `other`. It's null for the sync.
+- `client` comes from the request's `User-Agent`: the iOS app's `FPL/…` is `ios`, fpl-web's `fpl-social-web` is `web`; our checks send `fpl-social-smoke-test` (`smoke_test.sh`) and `fpl-social-contract` (fpl-social's contract fixtures script); anything else is `other`. It's null for the sync.
 
 For example, calls per endpoint in the last day:
 
