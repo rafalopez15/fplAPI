@@ -21,7 +21,7 @@ paths:
 
 ## Database workflows
 
-- Every database job has a `production` (group `database`) and a `staging` (group `staging-database`) version, so a sync never runs mid-migration.
+- Every database job has a `production` (group `database`) and a `staging` (group `staging-database`) version, so a sync never runs mid-migration. The gameweek pass is the exception, with its own groups (`sync.md`).
 - The hourly sync calls `migrate.yml` first (`from_sync: true`); its production sync `needs` it, so a failed migration skips the sync. The calling job sets no `concurrency`: the same group in both would deadlock. In a called workflow `github.event_name` and `github.ref` are the caller's, which is why `from_sync` exists.
 - `pg_cron` in Supabase starts the sync at :17 because GitHub skips most scheduled runs; the workflow's own `schedule` is only a backup. The trigger's SQL is in the README, not a migration.
 - Scheduled and `repository_dispatch` workflows run from `main`'s copy only, so changes to them take effect after merge.

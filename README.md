@@ -111,6 +111,21 @@ python -m src.jobs.sync_bootstrap
 
 If the sync stops, the **Stale sync alert** workflow notices, though GitHub runs its hourly schedule only a few times a day, so it can take hours: it reads production's `/healthcheck`, and while the last sync is more than 3 hours old it keeps a "Production sync is stale" issue open, which GitHub emails. It closes the issue once the sync recovers.
 
+### Gameweek pass (league activity)
+`GET /api/leagues/{id}/activity` shows what each team in a classic league did in a gameweek: real transfers (Wildcard and Free Hit churn removed), the hit, chip and captain. It never calls FPL per request. The first request for a league checks it with FPL and starts tracking it; it answers `"pending": true` until the **gameweek pass** has run.
+
+The pass is its own job in the hourly workflow (`gameweek-pass-production` and `gameweek-pass-staging`), after the sync. It stops tracking leagues nobody has asked about for 14 days, refreshes each tracked league's teams, and stores a `team_gameweeks` row for every team and gameweek it's missing, backfilling a new team's season. It paces itself at about 5 FPL calls a second and stops after 40 minutes; the next run carries on. Each run is recorded in `sync_runs` with kind `team_gameweeks`, and its FPL calls in `fpl_calls` with caller `gameweek_pass`.
+
+Limits on what public requests can start: leagues of up to 50 teams (422 otherwise), 200 tracked leagues, and 20 new ones an hour (429 with `Retry-After: 3600`).
+
+To run it locally against the database in your `.env`, or to check the time limit on staging, set `GAMEWEEK_PASS_MINUTES` (default 40):
+
+```bash
+GAMEWEEK_PASS_MINUTES=1 python -m src.jobs.gameweek_pass
+```
+
+From the Actions tab, **Run workflow** takes a time limit for staging's pass in **Staging's gameweek pass time limit**.
+
 ### Calls to FPL (`fpl_calls`)
 Every call to FPL's API, from the API or a sync job, writes one row to `fpl_calls` (FPL-90): when, from where (`source`), which FPL endpoint, which of our routes or sync steps made it (`caller`), which client (`client`), how FPL answered (`outcome`, `status_code`), how long it took and how big the answer was. Endpoints and callers are templates such as `entry/{id}/history`, so no manager or user id is stored. A failed write never fails the call.
 
