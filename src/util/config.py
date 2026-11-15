@@ -43,3 +43,6 @@ SUPABASE_SECRET_KEY = (os.getenv("SUPABASE_SECRET_KEY") or "").strip() or None
 # (sync-production, sync-staging). Unset, the API uses Vercel's built-in VERCEL_ENV.
 FPL_CALL_SOURCE = (os.getenv("FPL_CALL_SOURCE") or "").strip() or None
 VERCEL_ENV = (os.getenv("VERCEL_ENV") or "").strip() or None
+# Minutes the gameweek pass may run before it stops; the next hourly run carries on.
+# Lower it on staging to check that.
+GAMEWEEK_PASS_MINUTES = float(os.getenv("GAMEWEEK_PASS_MINUTES") or "40")
