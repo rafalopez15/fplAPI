@@ -9,7 +9,12 @@ import pytest
 from sqlalchemy.exc import OperationalError
 from src.db.models import ElementEventPoints
 from src.services import managers
-from src.services.transfer_points import PointsData, load_points, with_net_points
+from src.services.transfer_points import (
+    PointsData,
+    load_points,
+    real_transfers,
+    with_net_points,
+)
 from src.util import fpl_client
 
 MID, FWD = 3, 4
@@ -148,6 +153,32 @@ def test_real_pair_rows_in_a_chip_week_are_kept_as_they_are():
     )
     real = [(r["element_in"], r["element_out"]) for r in rows if not r["is_churn"]]
     assert sorted(real) == [(12, 13), (14, 15)]  # 14 for 15 is FPL's own row
+
+
+def test_real_transfers_per_gameweek():
+    types = {e: MID if e < 20 else FWD for e in range(10, 30)}
+    real = real_transfers(
+        [
+            # Gameweek 8, a Wildcard: churn leaving MID 12 for 11, FWD 22 for 21.
+            transfer(22, 10, 8, minute=4),
+            transfer(12, 20, 8, minute=3),
+            transfer(20, 21, 8, minute=2),
+            transfer(10, 11, 8, minute=1),
+            # Gameweek 9: one plain transfer.
+            transfer(13, 14, 9),
+        ],
+        types,
+    )
+    assert sorted(real) == [8, 9]
+    assert sorted((t["element_in"], t["element_out"]) for t in real[8]) == [
+        (12, 11),
+        (22, 21),
+    ]
+    assert real[9] == [{"element_in": 13, "element_out": 14}]
+
+
+def test_real_transfers_without_any():
+    assert not real_transfers([], {})
 
 
 def test_swap_undone_in_a_normal_week_is_all_churn():

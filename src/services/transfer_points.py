@@ -112,6 +112,26 @@ def _gameweek(rows: list[dict], data: Optional[PointsData]) -> tuple[list, list,
     return flagged, real, sold
 
 
+def real_transfers(
+    transfers: list[dict], element_types: dict[int, int]
+) -> dict[int, list[dict]]:
+    """Each gameweek's real changes, [{element_in, element_out}], churn removed.
+
+    element_types maps player ids to positions, for pairing chip weeks' changes.
+    """
+    by_event = defaultdict(list)
+    for row in transfers:
+        by_event[row["event"]].append(row)
+    data = PointsData(element_types=element_types, points={}, latest_event=None)
+    return {
+        event: [
+            {"element_in": row["element_in"], "element_out": row["element_out"]}
+            for row in _gameweek(rows, data)[1]
+        ]
+        for event, rows in by_event.items()
+    }
+
+
 def with_net_points(
     transfers: list[dict], free_hits: set[int], data: Optional[PointsData]
 ) -> list[dict]:
