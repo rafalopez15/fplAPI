@@ -9,6 +9,7 @@ from src.services.profiles import AccountDeletedError
 from src.util.auth import not_signed_in
 from src.util.database import FplDataUnavailableError
 from src.util.fpl_client import FplUnavailableError
+from src.util.fpl_metrics import FplCallContext
 from src.middleware.cache import cache_synced_data, never_cache_accounts
 from src.routers import routers
 
@@ -22,6 +23,8 @@ UNAVAILABLE = {"detail": "FPL data is currently unavailable"}
 
 app.middleware("http")(never_cache_accounts)
 app.middleware("http")(cache_synced_data)
+# Outermost, so every FPL call made while handling a request knows its route.
+app.add_middleware(FplCallContext)
 
 
 @app.exception_handler(FplDataUnavailableError)

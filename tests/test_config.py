@@ -164,3 +164,13 @@ def test_supabase_secret_key_defaults_to_none(monkeypatch):
 def test_supabase_secret_key_strips_whitespace(monkeypatch):
     monkeypatch.setenv("SUPABASE_SECRET_KEY", " sb_secret_test\n")
     assert load_fresh_config(monkeypatch).SUPABASE_SECRET_KEY == "sb_secret_test"
+
+
+@pytest.mark.parametrize(
+    "value, expected", [("sync-staging", "sync-staging"), ("", None)]
+)
+def test_fpl_call_source(monkeypatch, value, expected):
+    monkeypatch.setenv("FPL_CALL_SOURCE", value)
+    monkeypatch.setenv("VERCEL_ENV", " preview ")
+    config_ = load_fresh_config(monkeypatch)
+    assert (config_.FPL_CALL_SOURCE, config_.VERCEL_ENV) == (expected, "preview")
