@@ -8,6 +8,10 @@ on:
   # Started every hour by a pg_cron job in Supabase (README: "Hourly trigger"),
   # and by hand from the Actions tab.
   workflow_dispatch:
+    inputs:
+      gameweek_pass_minutes:
+        description: "Staging's gameweek pass time limit in minutes (default 40)"
+        required: false
 
 # Also caps the called migrate.yml.
 permissions:
@@ -81,3 +85,62 @@ jobs:
         DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
         FPL_CALL_SOURCE: sync-staging
       run: python -m src.jobs.sync_bootstrap
+
+  # The gameweek pass runs for up to 40 minutes, so it has its own concurrency
+  # groups: in the database ones it would hold migrations up, and GitHub would
+  # cancel a migration run left waiting. It runs even if the sync job failed,
+  # which any one failed step causes, but never after a failed migration.
+  gameweek-pass-production:
+    needs: [migrate, production]
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.migrate.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    concurrency:
+      group: gameweek-pass
+      cancel-in-progress: false
+    environment:
+      name: production
+      deployment: false
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Set up Python 3.13
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.13"
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    - name: Gameweek pass
+      # Secret on this step only, not pip install.
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        FPL_CALL_SOURCE: sync-production
+      run: python -m src.jobs.gameweek_pass
+
+  gameweek-pass-staging:
+    needs: staging
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    concurrency:
+      group: staging-gameweek-pass
+      cancel-in-progress: false
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Set up Python 3.13
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.13"
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    - name: Gameweek pass
+      # Secret on this step only, not pip install.
+      env:
+        DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        FPL_CALL_SOURCE: sync-staging
+        # Empty on scheduled runs, so the default applies.
+        GAMEWEEK_PASS_MINUTES: ${{ inputs.gameweek_pass_minutes }}
+      run: python -m src.jobs.gameweek_pass
