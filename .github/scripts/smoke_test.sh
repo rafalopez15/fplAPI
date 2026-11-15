@@ -18,8 +18,10 @@ trap 'rm -f "$body"' EXIT
 
 # Retries cover a cold start and a deployment whose alias is still settling.
 fetch() {
+  # The User-Agent marks our checks' FPL calls in fpl_calls (client "smoke-test").
   curl --silent --show-error --location --retry 3 --retry-delay 5 --retry-all-errors \
-    --max-time 20 --output "$body" --write-out '%{http_code}' "$base$1"
+    --max-time 20 --user-agent fpl-social-smoke-test \
+    --output "$body" --write-out '%{http_code}' "$base$1"
 }
 
 failed=0
