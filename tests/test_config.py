@@ -174,3 +174,9 @@ def test_fpl_call_source(monkeypatch, value, expected):
     monkeypatch.setenv("VERCEL_ENV", " preview ")
     config_ = load_fresh_config(monkeypatch)
     assert (config_.FPL_CALL_SOURCE, config_.VERCEL_ENV) == (expected, "preview")
+
+
+@pytest.mark.parametrize("value, expected", [("5", 5.0), ("", 40.0)])
+def test_gameweek_pass_minutes(monkeypatch, value, expected):
+    monkeypatch.setenv("GAMEWEEK_PASS_MINUTES", value)
+    assert load_fresh_config(monkeypatch).GAMEWEEK_PASS_MINUTES == expected

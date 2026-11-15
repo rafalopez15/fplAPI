@@ -1,4 +1,5 @@
-"""Responses for the league endpoint, built from FPL's leagues-classic/{id}/standings/.
+"""Responses for the league endpoints: standings, built from FPL's
+leagues-classic/{id}/standings/, and activity, from what the gameweek pass stored.
 
 Field names are FPL's. Only identity fields are required, so a field FPL drops
 comes back as null instead of failing the request.
@@ -40,3 +41,37 @@ class LeagueStandingsResponse(BaseModel):
     standings: List[Standing] = []
     new_entries: List[NewEntry] = []
     new_entries_has_next: bool = False
+
+
+class ActivityTransfer(BaseModel):
+    element_in: int
+    element_out: int
+
+
+class TeamActivity(BaseModel):
+    """What one team did in a gameweek. Never the manager's real name."""
+
+    entry: int
+    entry_name: Optional[str] = None
+    event: int
+    # Real changes only: Wildcard and Free Hit churn is left out.
+    transfers: List[ActivityTransfer] = []
+    transfers_cost: int = 0  # the hit, in points
+    chip: Optional[str] = None
+    captain: Optional[int] = None
+    vice_captain: Optional[int] = None
+    captain_changed: Optional[bool] = None  # null for a team's first stored gameweek
+
+
+class LeagueActivityResponse(BaseModel):
+    """What each team in a classic league did in a gameweek, by team id.
+
+    pending is true while the gameweek pass hasn't reached every team for this
+    gameweek, e.g. for a league requested for the first time; teams it has reached
+    are listed already.
+    """
+
+    league_id: int
+    event: int
+    pending: bool
+    teams: List[TeamActivity] = []

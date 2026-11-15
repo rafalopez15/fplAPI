@@ -3,6 +3,9 @@ paths:
   - "src/jobs/sync_bootstrap.py"
   - "src/services/teams.py"
   - "tests/test_sync_bootstrap.py"
+  - "src/jobs/gameweek_pass.py"
+  - "src/services/team_gameweeks.py"
+  - "tests/test_gameweek_pass.py"
 ---
 
 # Hourly sync
@@ -13,6 +16,16 @@ paths:
   2. `sync_team_names()` fetches names for up to 100 account teams `teams_tracked` doesn't have. A team FPL doesn't have is stored with a null name, so it isn't asked for again.
   3. `purge_snapshots()` deletes snapshots older than 30 days.
 - Nothing is fetched at startup or per request.
+
+## Gameweek pass
+
+`gameweek_pass.py` runs as its own job after the sync, even if the sync failed, never after a failed migration.
+
+- **Own concurrency groups** (`gameweek-pass`, `staging-gameweek-pass`) and a 55-minute timeout. Never put it in `database` / `staging-database`: a 40-minute job there holds migrations up, and GitHub cancels a migration run left waiting (why: FPL-139).
+- Order: purge leagues idle 14 days, refresh each tracked league's teams, then each team behind the latest passed deadline: `/transfers/` once, `picks` per missing gameweek.
+- **A row per team per gameweek,** even a quiet one. A team seen for the first time starts at its `started_event` (one `entry/{id}/` call), so one created after the deadline isn't left pending all week. After that, a picks 404 for the latest gameweek means not published yet and waits for the next run.
+- **Commit per team,** saving progress in a `finally`, so the time limit or FPL's first 503 stops it without losing work. `teams_tracked.last_event` is where the next run carries on.
+- New FPL calls go through `Pacer.wait()`. Tests patch `job.time` with a fake clock.
 
 ## Kit colors
 

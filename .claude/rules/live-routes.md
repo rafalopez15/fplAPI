@@ -9,6 +9,7 @@ paths:
   - "src/routers/events.py"
   - "src/services/managers.py"
   - "src/services/leagues.py"
+  - "src/services/league_activity.py"
   - "src/services/events.py"
   - "src/services/snapshots.py"
   - "src/services/transfer_points.py"
@@ -18,6 +19,7 @@ paths:
   - "tests/test_snapshots.py"
   - "tests/test_managers.py"
   - "tests/test_leagues.py"
+  - "tests/test_league_activity.py"
   - "tests/test_event_*.py"
   - "tests/test_transfer_points.py"
   - "tests/test_fpl_client.py"
@@ -26,7 +28,7 @@ paths:
 
 # Live routes
 
-`/managers/...`, `/leagues/{id}`, `/events/{id}/live` and `/events/{id}/fixtures` call FPL per request; nothing else does.
+`/managers/...`, `/leagues/{id}`, `/events/{id}/live` and `/events/{id}/fixtures` call FPL per request; `/leagues/{id}/activity` only to check a league it isn't tracking yet; nothing else does.
 
 ## Calling FPL
 
@@ -48,6 +50,7 @@ paths:
 
 - **Leagues on `/managers/{id}`:** classic leagues from the same `entry/{id}/` call, invitational first then smallest. Head-to-head or unreadable leagues are left out.
 - **League standings:** never `player_name`. Teams that just joined are only in FPL's `new_entries` until the next gameweek update, so the response returns them as `new_entries` (first page of 50). A page past the end is 200 with no standings. FPL's 404 for a head-to-head league is `"League not found"`.
+- **League activity** reads what the gameweek pass stored: not a `Live` route, no snapshot. A new league costs one standings call (404, 422 past one page and CDN-cached an hour, 503 if FPL is down) and is tracked within 200 leagues and 20 new an hour (429, `Retry-After: 3600`). `pending` is true while any team's `last_event` is behind the gameweek. A gameweek whose deadline hasn't passed is 404 `"Event deadline hasn't passed"`.
 - **Picks:** without `?event=`, one extra call to `fetch_manager()` for `current_event`; 404 before the first deadline.
 - **Live points:** flattened to `id`, `total_points`, `minutes` per player. 200 `[]` before the gameweek starts.
 - **Live fixtures:** FPL answers 200 `[]` both for a gameweek it doesn't have and for one with every match postponed, so on `[]` the route checks `events`: stored is 200 `[]`, otherwise 404 `"Event not found"`. Clients treat `finished_provisional` as full time; `finished` lags a day.

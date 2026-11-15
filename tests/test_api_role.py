@@ -11,7 +11,7 @@ from sqlalchemy.exc import ProgrammingError
 from src.db.models import Base, FplSnapshot, Note, Profile, UserTeam
 from src.services import snapshots
 from src.util import database, fpl_client, supabase_admin
-from tests.conftest import USER_ID, make_fpl_manager
+from tests.conftest import USER_ID, make_fpl_league_standings, make_fpl_manager
 from tests.test_snapshots import PAYLOADS, ROUTES
 
 ROLE = "fplapi_app"
@@ -35,6 +35,9 @@ PRIVILEGES = {
     "notes": {"SELECT", "INSERT", "UPDATE"},
     "fpl_snapshots": {"SELECT", "INSERT", "UPDATE"},
     "fpl_calls": {"INSERT"},
+    "leagues_tracked": {"SELECT", "INSERT", "UPDATE"},
+    "league_teams": {"SELECT"},
+    "team_gameweeks": {"SELECT"},
 }
 
 NOTE = {
@@ -160,6 +163,19 @@ def test_healthcheck_reads_the_last_syncs(as_api_role):
 def test_live_routes_save_snapshots(client, as_api_role, path, _fetch, key):
     assert client.get(path).status_code == 200
     assert key in set(as_api_role.scalars(select(FplSnapshot.key)))
+
+
+@pytest.mark.usefixtures("as_api_role")
+def test_league_activity_tracks_and_reads(client, monkeypatch):
+    monkeypatch.setattr(
+        fpl_client,
+        "fetch_league_standings",
+        Mock(return_value=make_fpl_league_standings()),
+    )
+    path = "/api/leagues/5508/activity?event=9"
+    # The first request tracks the league; the second bumps and reads it.
+    assert client.get(path).json()["pending"] is True
+    assert client.get(path).status_code == 200
 
 
 def test_an_account_from_first_call_to_deletion(
