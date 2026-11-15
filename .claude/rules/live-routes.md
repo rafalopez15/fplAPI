@@ -2,6 +2,7 @@
 paths:
   - "src/util/fpl_client.py"
   - "src/util/fpl_metrics.py"
+  - "src/middleware/fpl_calls.py"
   - "src/routers/live.py"
   - "src/routers/managers.py"
   - "src/routers/leagues.py"

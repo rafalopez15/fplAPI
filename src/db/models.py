@@ -403,7 +403,7 @@ class FplSnapshot(Base):
 
 
 class FplCall(Base):
-    """One call we made to FPL's API, from the API or a sync job (FPL-90).
+    """One call we made to FPL's API, from the API or a sync job.
 
     endpoint and caller are templates, e.g. "entry/{id}/history" and
     "GET /api/managers/{manager_id}/history": never manager or user ids.

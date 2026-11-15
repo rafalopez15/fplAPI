@@ -9,8 +9,8 @@ from src.services.profiles import AccountDeletedError
 from src.util.auth import not_signed_in
 from src.util.database import FplDataUnavailableError
 from src.util.fpl_client import FplUnavailableError
-from src.util.fpl_metrics import FplCallContext
 from src.middleware.cache import cache_synced_data, never_cache_accounts
+from src.middleware.fpl_calls import FplCallContext
 from src.routers import routers
 
 logger = logging.getLogger(__name__)

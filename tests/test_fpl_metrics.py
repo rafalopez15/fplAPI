@@ -4,7 +4,6 @@
 
 import json
 import logging
-import re
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from unittest.mock import Mock
@@ -18,33 +17,13 @@ from src.jobs import sync_bootstrap as job
 from src.util import database, fpl_client, fpl_metrics
 from src.util.fpl_metrics import (
     calls_from,
-    client_of,
     endpoint_of,
     save as real_save,
     source_of,
 )
-from tests.conftest import (
-    make_fixture,
-    make_fpl_event_live,
-    make_fpl_history,
-    make_fpl_league_standings,
-    make_fpl_manager,
-    make_fpl_picks,
-    make_fpl_transfers,
-)
 from tests.test_api_role import ROLE
 
 BASE = fpl_client.FPL_BASE_URL
-
-PAYLOADS = {
-    "entry/{id}": make_fpl_manager,
-    "entry/{id}/transfers": make_fpl_transfers,
-    "entry/{id}/history": make_fpl_history,
-    "entry/{id}/event/{gw}/picks": make_fpl_picks,
-    "event/{gw}/live": make_fpl_event_live,
-    "fixtures": lambda: [make_fixture(started=True)],
-    "leagues-classic/{id}/standings": make_fpl_league_standings,
-}
 
 
 def response(status_code=200, payload=None, body=None):
@@ -59,17 +38,6 @@ def response(status_code=200, payload=None, body=None):
             str(status_code), response=result
         )
     return result
-
-
-@pytest.fixture
-def fpl(monkeypatch):
-    """Answer every FPL URL with its conftest payload."""
-
-    def get(url, **_kwargs):
-        endpoint, _ = endpoint_of(url)
-        return response(payload=PAYLOADS[endpoint]())
-
-    monkeypatch.setattr(fpl_client.requests, "get", get)
 
 
 # --- one row per call --------------------------------------------------------
@@ -143,77 +111,6 @@ def test_endpoint_templates(url, endpoint, event):
 
 
 # --- who called --------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "user_agent, client",
-    [
-        ("FPL/42 CFNetwork/1568.100.1 Darwin/24.0.0", "ios"),
-        ("fpl-social-smoke-test", "smoke-test"),
-        ("curl/8.7.1 fpl-social-contract", "contract"),
-        ("Mozilla/5.0 (Macintosh)", "other"),
-        ("", "other"),
-    ],
-)
-def test_client_from_user_agent(user_agent, client):
-    assert client_of(user_agent) == client
-
-
-ROUTE_CALLS = [
-    (
-        "/api/managers/7700093",
-        "GET /api/managers/{manager_id}",
-        [("entry/{id}", None)],
-    ),
-    (
-        "/api/managers/7700093/transfers",
-        "GET /api/managers/{manager_id}/transfers",
-        [("entry/{id}/transfers", None), ("entry/{id}/history", None)],
-    ),
-    (
-        "/api/managers/7700093/picks",
-        "GET /api/managers/{manager_id}/picks",
-        [("entry/{id}", None), ("entry/{id}/event/{gw}/picks", 9)],
-    ),
-    ("/api/events/9/live", "GET /api/events/{event_id}/live", [("event/{gw}/live", 9)]),
-    (
-        "/api/events/9/fixtures",
-        "GET /api/events/{event_id}/fixtures",
-        [("fixtures", 9)],
-    ),
-    (
-        "/api/leagues/5508",
-        "GET /api/leagues/{league_id}",
-        [("leagues-classic/{id}/standings", None)],
-    ),
-]
-
-
-@pytest.mark.usefixtures("fpl")
-@pytest.mark.parametrize("path, caller, calls", ROUTE_CALLS)
-def test_routes_record_their_template_and_client(
-    client, fpl_calls, path, caller, calls
-):
-    response_ = client.get(path, headers={"User-Agent": "FPL/42 CFNetwork"})
-
-    assert response_.status_code == 200
-    assert [(row["endpoint"], row["event"]) for row in fpl_calls] == calls
-    for row in fpl_calls:
-        assert (row["caller"], row["client"]) == (caller, "ios")
-        # No id from the request path, or any other number, is stored.
-        assert not re.search(r"\d", row["endpoint"] + row["caller"])
-
-
-@pytest.mark.usefixtures("fpl")
-def test_account_routes_record_their_template(client, fpl_calls, signed_in):
-    client.headers.update(signed_in())
-    client.get("/api/me")
-    response_ = client.put("/api/me/teams/7700093", json={"relation": "following"})
-
-    assert response_.status_code == 200
-    assert [(row["caller"], row["client"]) for row in fpl_calls] == [
-        ("PUT /api/me/teams/{manager_id}", "other")
-    ]
 
 
 def test_a_call_outside_any_request_or_job(monkeypatch, fpl_calls):

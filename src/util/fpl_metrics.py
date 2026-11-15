@@ -1,14 +1,13 @@
 """Records every call to FPL's API in fpl_calls, so we can see how much traffic we
-send FPL, from where, and how it answers (FPL-90).
+send FPL, from where, and how it answers.
 
 fpl_client._get_json() calls record_call() once per call. Who made it comes from a
-context variable: the request's route and client, set by FplCallContext, or the
-sync step's name, set with calls_from(). Endpoints and callers are templates, so no
-manager or user id is ever stored.
+context variable: the request's route and client, set through from_request() by
+the FplCallContext middleware, or the sync step's name, set with calls_from().
+Endpoints and callers are templates, so no manager or user id is ever stored.
 """
 
 import logging
-import re
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -40,43 +39,16 @@ _request: ContextVar[Optional[tuple[dict, str]]] = ContextVar(
 )
 _job: ContextVar[Optional[str]] = ContextVar("fpl_call_job", default=None)
 
-# User-Agent markers, checked in order. Anything else is "other".
-CLIENTS = (
-    (re.compile(r"^FPL/"), "ios"),
-    (re.compile(r"fpl-social-smoke-test"), "smoke-test"),
-    (re.compile(r"fpl-social-contract"), "contract"),
-)
 
-
-def client_of(user_agent: str) -> str:
-    for pattern, client in CLIENTS:
-        if pattern.search(user_agent):
-            return client
-    return "other"
-
-
-class FplCallContext:
-    """ASGI middleware that makes the request known to record_call().
-
-    It stores the scope itself: routing adds the matched route to the same dict
-    later, so the route template is read when FPL is called. Pure ASGI rather than
-    BaseHTTPMiddleware, so the context reaches the endpoint unchanged.
-    """
-
-    def __init__(self, app):
-        self.app = app
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-        headers = dict(scope.get("headers") or [])
-        user_agent = headers.get(b"user-agent", b"").decode("latin-1")
-        token = _request.set((scope, client_of(user_agent)))
-        try:
-            await self.app(scope, receive, send)
-        finally:
-            _request.reset(token)
+@contextmanager
+def from_request(scope: dict, client: str):
+    """Attribute the FPL calls made inside this block to a request: its ASGI scope,
+    read for the route template at call time, and its client class."""
+    token = _request.set((scope, client))
+    try:
+        yield
+    finally:
+        _request.reset(token)
 
 
 @contextmanager
