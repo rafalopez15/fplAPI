@@ -7,6 +7,8 @@ from src.util import fpl_metrics
 # User-Agent markers, checked in order. Anything else is "other".
 CLIENTS = (
     (re.compile(r"^FPL/"), "ios"),
+    # fpl-web sends it from its server, where Node's default would read as "other".
+    (re.compile(r"fpl-social-web"), "web"),
     (re.compile(r"fpl-social-smoke-test"), "smoke-test"),
     (re.compile(r"fpl-social-contract"), "contract"),
 )
