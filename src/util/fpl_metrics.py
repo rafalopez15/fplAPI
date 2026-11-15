@@ -16,8 +16,6 @@ from typing import Optional
 from urllib.parse import parse_qs, urlsplit
 import requests
 from sqlalchemy import insert
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
 from src.db.models import FplCall
 from src.util import database
 from src.util.config import FPL_BASE_URL, FPL_CALL_SOURCE, VERCEL_ENV
@@ -107,34 +105,39 @@ def record_call(
     response: Optional[requests.Response],
 ) -> None:
     """Record one call to FPL, started at time.monotonic() started. response is None
-    when none came back. Never raises a database error."""
-    endpoint, event = endpoint_of(url)
-    caller, client = _caller()
-    save(
-        {
-            "called_at": called_at,
-            "source": SOURCE,
-            "endpoint": endpoint,
-            "event": event,
-            "caller": caller,
-            "client": client,
-            "outcome": outcome,
-            "status_code": None if response is None else response.status_code,
-            "duration_ms": round((time.monotonic() - started) * 1000),
-            "response_bytes": None if response is None else len(response.content),
-        }
-    )
+    when none came back.
+
+    Never raises: it runs in fpl_client's finally, where an error would replace the
+    FPL call's result or its own exception. A failure is logged instead.
+    """
+    try:
+        endpoint, event = endpoint_of(url)
+        caller, client = _caller()
+        save(
+            {
+                "called_at": called_at,
+                "source": SOURCE,
+                "endpoint": endpoint,
+                "event": event,
+                "caller": caller,
+                "client": client,
+                "outcome": outcome,
+                "status_code": None if response is None else response.status_code,
+                "duration_ms": round((time.monotonic() - started) * 1000),
+                "response_bytes": None if response is None else len(response.content),
+            }
+        )
+    # Anything at all: recording must never fail the FPL call.
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning("Couldn't record an FPL call to %s: %s", url, exc)
 
 
 def save(row: dict) -> None:
-    """Write the row in its own short transaction, outside any request's or sync's.
-    A failed write is logged and the FPL call goes on as normal.
+    """Write the row in its own short transaction, outside any request's or sync's,
+    on database.metrics_engine().
 
-    A Core insert, not the ORM's: that adds RETURNING id, which needs SELECT, and the
-    API's role may only insert.
+    inline() leaves the id to Postgres. Otherwise SQLAlchemy asks for it back with
+    RETURNING, which needs SELECT, and the API's role may only insert.
     """
-    try:
-        with Session(database.engine) as session, session.begin():
-            session.execute(insert(FplCall).values(row))
-    except SQLAlchemyError as exc:
-        logger.warning("Couldn't record an FPL call to %s: %s", row["endpoint"], exc)
+    with database.metrics_engine().begin() as connection:
+        connection.execute(insert(FplCall.__table__).values(row).inline())

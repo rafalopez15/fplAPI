@@ -102,6 +102,7 @@ def fpl(monkeypatch):
     "user_agent, client",
     [
         ("FPL/42 CFNetwork/1568.100.1 Darwin/24.0.0", "ios"),
+        ("fpl-social-web", "web"),
         ("fpl-social-smoke-test", "smoke-test"),
         ("curl/8.7.1 fpl-social-contract", "contract"),
         ("Mozilla/5.0 (Macintosh)", "other"),

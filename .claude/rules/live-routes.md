@@ -33,7 +33,7 @@ paths:
 ## Calling FPL
 
 - All FPL calls go through `fpl_client.py`, with a timeout and `HEADERS`. Live fetches use `_get_live_json()` and `FPL_PROXY_TIMEOUT` (5s), raising `FplNotFoundError` for FPL's 404 and `FplUnavailableError` for everything else, FPL's HTML "game is being updated" page included.
-- **Every call is recorded in `fpl_calls`** by `_get_json()`, in its own transaction; a failed write only logs. `endpoint` and `caller` are templates and never hold ids. Requests get their caller from the `FplCallContext` middleware; **a new sync step wraps its FPL calls in `calls_from("<step>")`**, or they're recorded as `unknown`. Writes are Core inserts: the ORM's `RETURNING id` needs `SELECT`, which `fplapi_app` lacks.
+- **Every call is recorded in `fpl_calls`** by `_get_json()`, in its own transaction; a failed write only logs. `endpoint` and `caller` are templates and never hold ids. Requests get their caller from the `FplCallContext` middleware; **a new sync step wraps its FPL calls in `calls_from("<step>")`**, or they're recorded as `unknown`. Writes go through `database.metrics_engine()`, a small pool of its own with a 1s timeout, so recording can't wait on the request pool, and any error in recording is logged, never raised.
 - **End the read transaction before calling FPL** in a request that queried first, so a slow FPL doesn't hold a pooler connection.
 - A row FPL sends that we can't read is skipped and logged (`fpl_rows.readable()`), never a 500.
 
