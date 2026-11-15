@@ -4,7 +4,7 @@
 
 import json
 import logging
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from unittest.mock import Mock
 
@@ -12,9 +12,11 @@ import pytest
 import requests
 from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from src.db.models import FplCall
 from src.jobs import sync_bootstrap as job
 from src.util import database, fpl_client, fpl_metrics
+from src.util.fpl_client import FplNotFoundError, FplUnavailableError
 from src.util.fpl_metrics import (
     calls_from,
     endpoint_of,
@@ -189,9 +191,28 @@ ROW = {
 }
 
 
-def test_save_writes_a_row(monkeypatch, db_session):
-    monkeypatch.setattr(database, "engine", db_session.get_bind())
+class SavepointEngine:
+    """Stands in for an engine: begin() is a savepoint on the test's connection, so
+    what save() writes is rolled back with the test."""
 
+    def __init__(self, connection):
+        self.connection = connection
+
+    @contextmanager
+    def begin(self):
+        with self.connection.begin_nested():
+            yield self.connection
+
+
+@pytest.fixture
+def metrics_engine(monkeypatch, db_session):
+    engine = SavepointEngine(db_session.connection())
+    monkeypatch.setattr(database, "metrics_engine", lambda: engine)
+    return engine
+
+
+@pytest.mark.usefixtures("metrics_engine")
+def test_save_writes_a_row(db_session):
     real_save(ROW)
 
     [saved] = db_session.scalars(select(FplCall)).all()
@@ -202,27 +223,72 @@ def test_save_writes_a_row(monkeypatch, db_session):
     )
 
 
-def test_the_api_role_can_save_but_not_read(monkeypatch, db_session):
+@pytest.mark.usefixtures("metrics_engine")
+def test_the_api_role_can_save_but_not_read(db_session):
     db_session.execute(text(f"SET LOCAL ROLE {ROLE}"))
-    monkeypatch.setattr(database, "engine", db_session.get_bind())
-
     real_save(ROW)
 
     with pytest.raises(ProgrammingError, match="permission denied"):
-        db_session.scalars(select(FplCall)).all()
+        with db_session.begin_nested():
+            db_session.scalars(select(FplCall)).all()
+    db_session.execute(text("RESET ROLE"))
+    assert db_session.scalar(select(FplCall.endpoint)) == "entry/{id}/history"
 
 
-def test_a_failed_save_is_logged_not_raised(monkeypatch, fpl_calls, caplog):
-    def unreachable(*_args, **_kwargs):
-        raise OperationalError("INSERT", {}, Exception("connection refused"))
+@pytest.mark.parametrize(
+    "error",
+    [
+        OperationalError("INSERT", {}, Exception("connection refused")),
+        PoolTimeoutError("QueuePool limit of size 1 overflow 2 reached"),
+    ],
+)
+def test_a_failed_save_is_logged_not_raised(monkeypatch, fpl_calls, caplog, error):
+    def unavailable(*_args, **_kwargs):
+        raise error
 
     monkeypatch.setattr(fpl_metrics, "save", real_save)
-    monkeypatch.setattr(database.engine, "connect", unreachable)
+    monkeypatch.setattr(database.metrics_engine(), "connect", unavailable)
     monkeypatch.setattr(
         fpl_client.requests, "get", Mock(return_value=response(payload={"a": 1}))
     )
 
     with caplog.at_level(logging.WARNING):
         assert fpl_client.fetch_manager(1) == {"a": 1}
-    assert "Couldn't record an FPL call to entry/{id}" in caplog.text
+    assert "Couldn't record an FPL call to" in caplog.text
     assert not fpl_calls
+
+
+@pytest.mark.parametrize(
+    "get, raised",
+    [
+        (Mock(return_value=response(payload={"a": 1})), None),
+        (
+            Mock(side_effect=requests.exceptions.ConnectionError("no")),
+            FplUnavailableError,
+        ),
+        (Mock(return_value=response(404, body=b"Not Found")), FplNotFoundError),
+    ],
+)
+def test_a_recording_bug_never_changes_the_fpl_call(monkeypatch, caplog, get, raised):
+    def broken(_url):
+        raise ValueError("unexpected URL")
+
+    monkeypatch.setattr(fpl_metrics, "endpoint_of", broken)
+    monkeypatch.setattr(fpl_client.requests, "get", get)
+
+    with caplog.at_level(logging.WARNING):
+        if raised is None:
+            assert fpl_client.fetch_manager(1) == {"a": 1}
+        else:
+            with pytest.raises(raised):
+                fpl_client.fetch_manager(1)
+    assert "Couldn't record an FPL call to" in caplog.text
+    assert "unexpected URL" in caplog.text
+
+
+def test_the_metrics_engine_is_small_and_quick_to_give_up():
+    engine = database.metrics_engine()
+    assert engine is database.metrics_engine()
+    assert engine is not database.engine
+    assert (engine.pool.size(), engine.pool.timeout()) == (1, 1)
+    assert engine.pool._max_overflow == 2  # pylint: disable=protected-access
