@@ -1,0 +1,33 @@
+name: CLAUDE.md size
+
+# CLAUDE.md loads in every session; keep it and the rules short.
+on:
+  pull_request:
+    paths: ["CLAUDE.md", ".claude/**", ".github/workflows/claude-md.yml"]
+  push:
+    branches: [main]
+    paths: ["CLAUDE.md", ".claude/**", ".github/workflows/claude-md.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  size:
+    name: CLAUDE.md size
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check line counts
+      run: |
+        status=0
+        check() {
+          lines=$(wc -l < "$1" | tr -d ' ')
+          if [ "$lines" -gt "$2" ]; then
+            echo "::error file=$1::$1 has $lines lines, over the limit of $2. See .claude/rules/claude-md.md."
+            status=1
+          fi
+        }
+        check CLAUDE.md 150
+        for f in .claude/rules/*.md; do check "$f" 80; done
+        exit $status
