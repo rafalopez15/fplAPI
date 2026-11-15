@@ -36,7 +36,7 @@ from src.db.models import (
     Team,
 )
 from src.jobs.sync_bootstrap import to_row
-from src.util import auth, database
+from src.util import auth, database, fpl_metrics
 
 # pylint: enable=wrong-import-position
 
@@ -652,6 +652,14 @@ def block_database(monkeypatch):
         raise AssertionError(f"Unexpected database connection: {args} {kwargs}")
 
     monkeypatch.setattr(database.engine, "connect", _blocked)
+
+
+@pytest.fixture(autouse=True)
+def fpl_calls(monkeypatch):
+    """The fpl_calls rows FPL calls would write, collected instead of saved."""
+    rows = []
+    monkeypatch.setattr(fpl_metrics, "save", rows.append)
+    return rows
 
 
 # --- test database ---------------------------------------------------------

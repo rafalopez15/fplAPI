@@ -54,6 +54,7 @@ jobs:
       # Secret on this step only, not pip install.
       env:
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        FPL_CALL_SOURCE: sync-production
       run: python -m src.jobs.sync_bootstrap
 
   # Hourly too: it keeps the previews' data current and stops the free staging
@@ -78,4 +79,5 @@ jobs:
       # Secret on this step only, not pip install.
       env:
         DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        FPL_CALL_SOURCE: sync-staging
       run: python -m src.jobs.sync_bootstrap

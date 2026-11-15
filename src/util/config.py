@@ -39,3 +39,7 @@ SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/") or None
 # The same project's secret key, for deleting accounts through Supabase's Admin API.
 # None when unset: DELETE /api/me then returns 503. Never log it.
 SUPABASE_SECRET_KEY = (os.getenv("SUPABASE_SECRET_KEY") or "").strip() or None
+# Where FPL calls are recorded from in fpl_calls: the workflows set it per job
+# (sync-production, sync-staging). Unset, the API uses Vercel's built-in VERCEL_ENV.
+FPL_CALL_SOURCE = (os.getenv("FPL_CALL_SOURCE") or "").strip() or None
+VERCEL_ENV = (os.getenv("VERCEL_ENV") or "").strip() or None

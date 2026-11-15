@@ -1,9 +1,10 @@
 import logging
 from collections.abc import Iterator
 from datetime import datetime
+from functools import cache
 from typing import Annotated, Optional
 from fastapi import Depends
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import Engine, create_engine, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from src.db.models import SyncRun
@@ -31,6 +32,24 @@ engine = create_engine(
         "prepare_threshold": None,
     },
 )
+
+
+@cache
+def metrics_engine() -> Engine:
+    """A small engine of its own for recording FPL calls (fpl_metrics), created on
+    first use.
+
+    Separate from the request pool so a busy pool or a down database delays an
+    FPL call by about a second at most, never by pool_timeout's default 30.
+    """
+    return create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=1,
+        max_overflow=2,
+        pool_timeout=1,
+        connect_args={"connect_timeout": 2, "prepare_threshold": None},
+    )
 
 
 class FplDataUnavailableError(Exception):

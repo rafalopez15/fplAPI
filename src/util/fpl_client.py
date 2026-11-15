@@ -1,5 +1,8 @@
 import logging
+import time
+from datetime import datetime, timezone
 import requests
+from src.util import fpl_metrics
 from src.util.config import FPL_BASE_URL, FPL_PROXY_TIMEOUT, FPL_REQUEST_TIMEOUT
 
 logger = logging.getLogger(__name__)
@@ -28,17 +31,41 @@ class FplUnavailableError(Exception):
     """FPL couldn't be reached or answered with an error, e.g. during its updates."""
 
 
+def _outcome(exc: requests.exceptions.RequestException) -> str:
+    """How a failed call ended, for fpl_calls."""
+    if isinstance(exc, requests.exceptions.HTTPError):
+        if getattr(exc.response, "status_code", None) == 404:
+            return "not_found"
+        return "http_error"
+    if isinstance(exc, requests.exceptions.Timeout):
+        return "timeout"
+    if isinstance(exc, requests.exceptions.JSONDecodeError):
+        return "invalid_json"
+    return "connection_error"
+
+
 def _get_json(url: str, timeout: float = FPL_REQUEST_TIMEOUT):
     """GET an FPL endpoint and return the parsed JSON.
 
     Blocking. Raises requests.exceptions.RequestException on network errors,
-    timeouts, error statuses and invalid JSON.
+    timeouts, error statuses and invalid JSON. Every call is recorded in fpl_calls,
+    whatever its outcome.
     """
-    response = requests.get(url, timeout=timeout, headers=HEADERS)
-    response.raise_for_status()
-    data = response.json()
-    logger.info("FPL response from %s: %s", url, response.status_code)
-    return data
+    called_at = datetime.now(timezone.utc)
+    started = time.monotonic()
+    response, outcome = None, "connection_error"
+    try:
+        response = requests.get(url, timeout=timeout, headers=HEADERS)
+        response.raise_for_status()
+        data = response.json()
+        outcome = "ok"
+        logger.info("FPL response from %s: %s", url, response.status_code)
+        return data
+    except requests.exceptions.RequestException as exc:
+        outcome = _outcome(exc)
+        raise
+    finally:
+        fpl_metrics.record_call(url, called_at, started, outcome, response)
 
 
 def fetch_bootstrap_static() -> dict:

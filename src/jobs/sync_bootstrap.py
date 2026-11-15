@@ -45,6 +45,7 @@ from src.util.fpl_client import (
     fetch_fixtures,
     fetch_manager,
 )
+from src.util.fpl_metrics import calls_from
 
 logger = logging.getLogger(__name__)
 
@@ -288,9 +289,12 @@ def main() -> int:
     try:
         # The points sync runs even if the bootstrap one failed: it only needs
         # events.data_checked, which an older bootstrap sync has already stored.
-        succeeded = sync_bootstrap()
-        succeeded = sync_event_points() and succeeded
-        succeeded = sync_team_names() and succeeded
+        with calls_from("sync_bootstrap"):
+            succeeded = sync_bootstrap()
+        with calls_from("sync_event_points"):
+            succeeded = sync_event_points() and succeeded
+        with calls_from("sync_team_names"):
+            succeeded = sync_team_names() and succeeded
         succeeded = purge_snapshots() and succeeded
     except SQLAlchemyError as exc:
         logger.error("Could not record the sync run: %s", describe(exc))

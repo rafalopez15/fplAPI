@@ -1,3 +1,4 @@
+import json
 from unittest.mock import Mock
 
 import pytest
@@ -23,11 +24,15 @@ def mock_get(monkeypatch, response=None, side_effect=None):
 
 
 def ok_response(payload):
-    return Mock(status_code=200, json=Mock(return_value=payload))
+    return Mock(
+        status_code=200,
+        content=json.dumps(payload).encode(),
+        json=Mock(return_value=payload),
+    )
 
 
 def error_response(status_code, text):
-    response = Mock(status_code=status_code, text=text)
+    response = Mock(status_code=status_code, text=text, content=text.encode())
     response.raise_for_status.side_effect = requests.exceptions.HTTPError(
         f"{status_code} Server Error: {text}", response=response
     )
@@ -61,7 +66,7 @@ def test_fetch_bootstrap_static_raises_on_network_error(monkeypatch):
 
 
 def test_fetch_bootstrap_static_raises_on_invalid_json(monkeypatch):
-    response = Mock(status_code=200)
+    response = Mock(status_code=200, content=b"doc")
     response.json.side_effect = requests.exceptions.JSONDecodeError("bad", "doc", 0)
     mock_get(monkeypatch, response)
 
@@ -189,7 +194,7 @@ def test_fpl_unreachable_raises_unavailable(monkeypatch, caplog, error):
 
 def test_fpl_maintenance_page_raises_unavailable(monkeypatch):
     # During updates FPL serves an HTML "The game is being updated" page.
-    response = Mock(status_code=200)
+    response = Mock(status_code=200, content=b"<html>")
     response.json.side_effect = requests.exceptions.JSONDecodeError(
         "Expecting value", "<html>", 0
     )

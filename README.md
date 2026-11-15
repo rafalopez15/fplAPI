@@ -111,6 +111,20 @@ python -m src.jobs.sync_bootstrap
 
 If the sync stops, the **Stale sync alert** workflow notices, though GitHub runs its hourly schedule only a few times a day, so it can take hours: it reads production's `/healthcheck`, and while the last sync is more than 3 hours old it keeps a "Production sync is stale" issue open, which GitHub emails. It closes the issue once the sync recovers.
 
+### Calls to FPL (`fpl_calls`)
+Every call to FPL's API, from the API or a sync job, writes one row to `fpl_calls` (FPL-90): when, from where (`source`), which FPL endpoint, which of our routes or sync steps made it (`caller`), which client (`client`), how FPL answered (`outcome`, `status_code`), how long it took and how big the answer was. Endpoints and callers are templates such as `entry/{id}/history`, so no manager or user id is stored. A failed write never fails the call.
+
+- `source` is `api-production` or `api-preview` on Vercel (from its built-in `VERCEL_ENV`), `sync-production` or `sync-staging` from the workflows (they set `FPL_CALL_SOURCE`), and `local` otherwise.
+- `client` comes from the request's `User-Agent`: the iOS app's `FPL/…` is `ios`, fpl-web's `fpl-social-web` is `web`; our checks send `fpl-social-smoke-test` (`smoke_test.sh`) and `fpl-social-contract` (fpl-social's contract fixtures script); anything else is `other`. It's null for the sync.
+
+For example, calls per endpoint in the last day:
+
+```sql
+select source, endpoint, outcome, count(*), round(avg(duration_ms)) as avg_ms
+from fpl_calls where called_at > now() - interval '1 day'
+group by 1, 2, 3 order by 4 desc;
+```
+
 ### Staging database (for previews)
 Vercel preview deployments use a second Supabase project, `fpl-api-staging`, so unmerged code never reads or writes production data. It's set up like production (free plan, us-east-2, Data API off, RLS from the migrations) and holds only test data, so it's safe to reset.
 
