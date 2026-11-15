@@ -30,6 +30,7 @@ from tests.conftest import (
     make_element,
     make_event,
     make_fpl_league_standings,
+    make_fpl_manager,
     make_fpl_new_entry,
     make_fpl_picks,
     make_fpl_standing,
@@ -126,9 +127,9 @@ def transfer(element_in, element_out, event, minute=0):
 
 
 class Fpl:
-    """FPL for the pass: standings per league, and each team's transfers and picks.
-    Picks default to the same captain every gameweek. Every call moves the clock
-    on by a second."""
+    """FPL for the pass: standings per league, and each team's entry, transfers and
+    picks. Teams start in gameweek 1 and keep the same captain unless a test says
+    otherwise. Every call moves the clock on by a second."""
 
     def __init__(self, clock):
         self.clock = clock
@@ -140,6 +141,7 @@ class Fpl:
                 ]
             )
         }
+        self.started = {}  # manager_id -> started_event
         self.transfers = {}
         self.picks = {}
         self.errors = {}  # (kind, *args) -> exception
@@ -158,6 +160,12 @@ class Fpl:
             raise FplNotFoundError(league_id)
         return self.standings[league_id]
 
+    def team(self, manager_id):
+        self._call(("entry", manager_id))
+        return make_fpl_manager(
+            id=manager_id, started_event=self.started.get(manager_id, 1)
+        )
+
     def team_transfers(self, manager_id):
         self._call(("transfers", manager_id))
         return self.transfers.get(manager_id, [])
@@ -171,6 +179,7 @@ class Fpl:
 def fpl(monkeypatch, clock):
     fake = Fpl(clock)
     monkeypatch.setattr(fpl_client, "fetch_league_standings", fake.league)
+    monkeypatch.setattr(job, "fetch_manager", fake.team)
     monkeypatch.setattr(job, "fetch_manager_transfers", fake.team_transfers)
     monkeypatch.setattr(job, "fetch_manager_picks", fake.team_picks)
     return fake
@@ -230,7 +239,8 @@ def test_a_new_league_is_backfilled(engine, fpl):
             session.execute(select(TrackedTeam.manager_id, TrackedTeam.name)).all()
         )
     assert names == {TEAM_A: "Amos's Team", TEAM_B: "Solio Moose"}
-    # Transfers once per team, then picks for each gameweek.
+    # Entry and transfers once per team, then picks for each gameweek.
+    assert fpl.calls.count(("entry", TEAM_A)) == 1
     assert fpl.calls.count(("transfers", TEAM_A)) == 1
     assert [c for c in fpl.calls if c[:2] == ("picks", TEAM_A)] == [
         ("picks", TEAM_A, event) for event in (1, 2, 3)
@@ -318,7 +328,34 @@ def test_a_gameweek_set_back_is_passed_again_against_the_one_before(engine, fpl)
 # --- gameweeks a team doesn't have -----------------------------------------------
 
 
-def test_gameweeks_before_a_team_started_are_skipped(engine, fpl):
+def test_a_backfill_starts_at_the_gameweek_the_team_started(engine, fpl):
+    fpl.started[TEAM_A] = 2
+    track(engine)
+    job.run_pass(engine)
+    assert [c for c in fpl.calls if c[:2] == ("picks", TEAM_A)] == [
+        ("picks", TEAM_A, 2),
+        ("picks", TEAM_A, 3),
+    ]
+    assert sorted(e for t, e in stored(engine) if t == TEAM_A) == [2, 3]
+    assert stored(engine)[(TEAM_A, 2)].captain_changed is None
+
+
+def test_a_team_created_after_the_latest_deadline_is_done_at_once(engine, fpl):
+    # It has no picks for gameweek 3 and never will, so it mustn't wait for them.
+    fpl.started[TEAM_A] = 4
+    track(engine)
+
+    job.run_pass(engine)
+
+    assert ("picks", TEAM_A, 3) not in fpl.calls
+    assert last_events(engine)[TEAM_A] == 3
+    assert not [key for key in stored(engine) if key[0] == TEAM_A]
+    fpl.calls.clear()
+    job.run_pass(engine)
+    assert [c for c in fpl.calls if c[0] != "standings"] == []
+
+
+def test_a_picks_404_before_the_latest_gameweek_is_skipped(engine, fpl):
     fpl.errors[("picks", TEAM_A, 1)] = FplNotFoundError("picks")
     track(engine)
     job.run_pass(engine)
@@ -339,8 +376,9 @@ def test_unpublished_picks_for_the_latest_gameweek_wait_for_the_next_run(engine,
     assert (TEAM_A, 3) in stored(engine)
 
 
-def test_a_team_fpl_no_longer_has_is_skipped_to_the_latest_gameweek(engine, fpl):
-    fpl.errors[("transfers", TEAM_A)] = FplNotFoundError("transfers")
+@pytest.mark.parametrize("kind", ["entry", "transfers"])
+def test_a_team_fpl_no_longer_has_is_skipped_to_the_latest_gameweek(engine, fpl, kind):
+    fpl.errors[(kind, TEAM_A)] = FplNotFoundError(kind)
     track(engine)
     job.run_pass(engine)
     assert last_events(engine)[TEAM_A] == 3
@@ -352,9 +390,10 @@ def test_a_team_fpl_no_longer_has_is_skipped_to_the_latest_gameweek(engine, fpl)
 
 def test_the_time_limit_stops_the_pass_and_the_next_run_finishes(engine, fpl, clock):
     track(engine)
-    # Each call takes a second here: the standings, then team 1's transfers and
-    # picks for gameweeks 1-3, and the limit falls during team 7700093.
-    assert job.run_pass(engine, minutes=7 / 60) is True
+    # Each call takes a second here: the standings, team 1's entry, transfers and
+    # picks for gameweeks 1-3, then team 7700093's entry, transfers and gameweek 1
+    # picks before the limit at 9 seconds.
+    assert job.run_pass(engine, minutes=9 / 60) is True
     assert last_events(engine)[TEAM_B] == 3
     assert last_events(engine)[TEAM_A] == 1
 
@@ -362,7 +401,8 @@ def test_the_time_limit_stops_the_pass_and_the_next_run_finishes(engine, fpl, cl
     fpl.calls.clear()
     assert job.run_pass(engine) is True
     assert last_events(engine) == {TEAM_A: 3, TEAM_B: 3}
-    # Carries on from gameweek 2, not from the start.
+    # Carries on from gameweek 2, not from the start, and needs no entry call.
+    assert ("entry", TEAM_A) not in fpl.calls
     assert ("picks", TEAM_A, 1) not in fpl.calls
     assert runs(engine) == [("team_gameweeks", "succeeded", None)] * 2
 

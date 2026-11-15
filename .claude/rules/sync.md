@@ -23,7 +23,7 @@ paths:
 
 - **Own concurrency groups** (`gameweek-pass`, `staging-gameweek-pass`) and a 55-minute timeout. Never put it in `database` / `staging-database`: a 40-minute job there holds migrations up, and GitHub cancels a migration run left waiting (why: FPL-139).
 - Order: purge leagues idle 14 days, refresh each tracked league's teams, then each team behind the latest passed deadline: `/transfers/` once, `picks` per missing gameweek.
-- **A row per team per gameweek,** even a quiet one. A picks 404 means the team hadn't started, except for the latest gameweek, which waits for the next run.
+- **A row per team per gameweek,** even a quiet one. A team seen for the first time starts at its `started_event` (one `entry/{id}/` call), so one created after the deadline isn't left pending all week. After that, a picks 404 for the latest gameweek means not published yet and waits for the next run.
 - **Commit per team,** saving progress in a `finally`, so the time limit or FPL's first 503 stops it without losing work. `teams_tracked.last_event` is where the next run carries on.
 - New FPL calls go through `Pacer.wait()`. Tests patch `job.time` with a fake clock.
 

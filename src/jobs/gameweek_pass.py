@@ -6,11 +6,11 @@ GitHub Actions runs it hourly, after the bootstrap sync, as its own job.
 It stops tracking leagues nobody has asked about for 14 days, refreshes each tracked
 league's teams, then for every team behind the latest gameweek whose deadline has
 passed fetches its transfers once and its picks for each gameweek it's missing,
-backfilling a new team's whole season. Calls are paced at about 5 a second, and the
-pass stops at a time limit; teams_tracked.last_event lets the next run carry on.
-Each team commits on its own, so a migration waits seconds, not the whole pass. FPL
-being down or updating stops the pass until the next run. Every run is recorded in
-sync_runs (kind "team_gameweeks").
+backfilling a new team's season from the gameweek it started. Calls are paced at
+about 5 a second, and the pass stops at a time limit; teams_tracked.last_event lets
+the next run carry on. Each team commits on its own, so a migration waits seconds,
+not the whole pass. FPL being down or updating stops the pass until the next run.
+Every run is recorded in sync_runs (kind "team_gameweeks").
 """
 
 import logging
@@ -28,6 +28,7 @@ from src.util import database
 from src.util.config import GAMEWEEK_PASS_MINUTES
 from src.util.fpl_client import (
     FplNotFoundError,
+    fetch_manager,
     fetch_manager_picks,
     fetch_manager_transfers,
 )
@@ -78,15 +79,21 @@ def pass_team(engine: Engine, pacer: Pacer, team: tuple, latest: int, types: dic
     """Store the gameweeks the team is missing, up to latest, and save how far it
     got even if the pass stops part-way.
 
-    team is (manager_id, last_event). A 404 for picks means the team hadn't started
-    that gameweek, except for the latest, which FPL may not have published yet:
-    that's left for the next run.
+    team is (manager_id, last_event). A team seen for the first time starts at its
+    started_event, so a team created after the latest deadline is done at once
+    instead of waiting for picks that will never come. After that, a 404 for the
+    latest gameweek's picks means FPL hasn't published them yet: that's left for
+    the next run.
     """
     manager_id, done = team[0], team[1] or 0
-    start, rows = done, []
+    rows = []
     try:
-        pacer.wait()
         try:
+            if team[1] is None:
+                pacer.wait()
+                started = fetch_manager(manager_id).get("started_event") or 1
+                done = min(started - 1, latest)
+            pacer.wait()
             real = real_transfers(fetch_manager_transfers(manager_id), types)
         except FplNotFoundError:
             logger.info(
@@ -111,7 +118,7 @@ def pass_team(engine: Engine, pacer: Pacer, team: tuple, latest: int, types: dic
             rows.append(row)
             captain, done = row["captain"], event
     finally:
-        if done > start:
+        if done > (team[1] or 0):
             with Session(engine) as session, session.begin():
                 team_gameweeks.save(session, manager_id, rows, done)
 
