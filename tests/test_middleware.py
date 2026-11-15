@@ -139,6 +139,11 @@ ROUTE_CALLS = [
         "GET /api/leagues/{league_id}",
         [("leagues-classic/{id}/standings", None)],
     ),
+    (
+        "/api/leagues/5508/activity?event=9",
+        "GET /api/leagues/{league_id}/activity",
+        [("leagues-classic/{id}/standings", None)],
+    ),
 ]
 
 
