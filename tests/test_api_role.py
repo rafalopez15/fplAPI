@@ -35,6 +35,9 @@ PRIVILEGES = {
     "notes": {"SELECT", "INSERT", "UPDATE"},
     "fpl_snapshots": {"SELECT", "INSERT", "UPDATE"},
     "fpl_calls": {"INSERT"},
+    "leagues_tracked": {"SELECT", "INSERT", "UPDATE"},
+    "league_teams": {"SELECT"},
+    "team_gameweeks": {"SELECT"},
 }
 
 NOTE = {

@@ -327,12 +327,13 @@ class UserTeam(Base):
 
 
 class TrackedTeam(Base):
-    """An FPL team on at least one account, with what we keep about it (FPL-101).
+    """An FPL team on an account or in a tracked league, with what we keep about it
+    (FPL-101).
 
-    One row per team however many accounts have it, so its name is stored once.
-    There's no foreign key to user_teams: the row outlives the last account that
-    removes the team, and the timeline's gameweek pass (FPL-15) adds to it. name is
-    null when FPL had no such team.
+    One row per team however many accounts or leagues have it, so its name is
+    stored once. There's no foreign key to user_teams or league_teams: the row
+    outlives them. name is null when FPL had no such team. last_event is the latest
+    gameweek the gameweek pass has handled for the team, null before its first.
     """
 
     __tablename__ = "teams_tracked"
@@ -340,6 +341,54 @@ class TrackedTeam(Base):
     manager_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
     name: Mapped[Optional[str]]
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    last_event: Mapped[Optional[int]]
+
+
+class TrackedLeague(Base):
+    """A classic league whose teams the gameweek pass follows, since its first
+    activity request. Purged after a while without one."""
+
+    __tablename__ = "leagues_tracked"
+
+    league_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    last_requested_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    # When the pass last read the league's teams; null until it has.
+    teams_updated_at: Mapped[Optional[datetime]]
+
+
+class LeagueTeam(Base):
+    """A team in a tracked league: its standings' first page and new entries, as of
+    the last pass."""
+
+    __tablename__ = "league_teams"
+
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey("leagues_tracked.league_id", ondelete="CASCADE"), primary_key=True
+    )
+    manager_id: Mapped[int] = mapped_column(
+        primary_key=True, autoincrement=False, index=True
+    )
+
+
+class TeamGameweek(Base):
+    """What a team did in one gameweek: real transfers, the hit, chip and captain.
+
+    One row for every gameweek the pass has handled, even when nothing happened.
+    transfers is [{element_in, element_out}], with Wildcard and Free Hit churn
+    removed. captain_changed is null for the team's first stored gameweek.
+    """
+
+    __tablename__ = "team_gameweeks"
+
+    manager_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    event: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    transfers: Mapped[Any] = mapped_column(JSONB)
+    transfers_cost: Mapped[int]
+    chip: Mapped[Optional[str]]
+    captain: Mapped[Optional[int]]
+    vice_captain: Mapped[Optional[int]]
+    captain_changed: Mapped[Optional[bool]]
 
 
 class Note(Base):
