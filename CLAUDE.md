@@ -2,7 +2,7 @@
 
 FastAPI service serving Fantasy Premier League (FPL) data under `/api`, from a Postgres copy of FPL's API that an hourly job keeps current. The FPL Social iOS app is its main client.
 
-Rules for one area load from `.claude/rules/` when you open its files: `database.md`, `live-routes.md`, `caching.md`, `accounts.md`, `sync.md`, `testing.md`, `workflows.md`. How-tos for people are in `README.md`; decisions and their history are in Linear (team FPL Social, Architecture doc).
+Rules for one area load from `.claude/rules/` when you open its files: `database.md`, `live-routes.md`, `caching.md`, `accounts.md`, `sync.md`, `testing.md`, `workflows.md`, `claude-md.md`. How-tos for people are in `README.md`; decisions and their history are in Linear (team FPL Social, Architecture doc).
 
 ## Working guidelines
 
