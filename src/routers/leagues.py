@@ -84,8 +84,11 @@ def get_league_activity(
     except FplNotFoundError as exc:
         raise not_found("League not found") from exc
     except league_activity.LeagueTooBigError as exc:
+        # A big league stays big, so the CDN can answer repeats for an hour.
         raise HTTPException(
-            status_code=422, detail="League too big for activity"
+            status_code=422,
+            detail="League too big for activity",
+            headers={"Cache-Control": "s-maxage=3600"},
         ) from exc
     except league_activity.TooManyLeaguesError as exc:
         raise HTTPException(

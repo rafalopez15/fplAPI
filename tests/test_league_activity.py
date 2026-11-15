@@ -117,6 +117,7 @@ def test_a_league_over_one_page_is_too_big(api, fetch, seeded_session, standings
     response = api.get(PATH)
     assert response.status_code == 422
     assert response.json() == {"detail": "League too big for activity"}
+    assert response.headers["cache-control"] == "s-maxage=3600"
     assert not tracked_ids(seeded_session)
 
 
