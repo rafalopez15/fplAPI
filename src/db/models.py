@@ -11,6 +11,7 @@ from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -18,6 +19,7 @@ from sqlalchemy import (
     Index,
     MetaData,
     Numeric,
+    SmallInteger,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -398,3 +400,29 @@ class FplSnapshot(Base):
     key: Mapped[str] = mapped_column(primary_key=True)
     body: Mapped[Any] = mapped_column(JSONB)
     fetched_at: Mapped[datetime]
+
+
+class FplCall(Base):
+    """One call we made to FPL's API, from the API or a sync job (FPL-90).
+
+    endpoint and caller are templates, e.g. "entry/{id}/history" and
+    "GET /api/managers/{manager_id}/history": never manager or user ids.
+    """
+
+    __tablename__ = "fpl_calls"
+    __table_args__ = (
+        Index("ix_fpl_calls_called_at", "called_at", postgresql_using="brin"),
+        Index("ix_fpl_calls_source_called_at", "source", "called_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    called_at: Mapped[datetime]
+    source: Mapped[str]
+    endpoint: Mapped[str]
+    event: Mapped[Optional[int]] = mapped_column(SmallInteger)
+    caller: Mapped[str]
+    client: Mapped[Optional[str]]
+    outcome: Mapped[str]
+    status_code: Mapped[Optional[int]] = mapped_column(SmallInteger)
+    duration_ms: Mapped[int]
+    response_bytes: Mapped[Optional[int]]
