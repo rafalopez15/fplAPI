@@ -126,14 +126,24 @@ def transfer(element_in, element_out, event, minute=0):
     }
 
 
+class Calls(list):
+    """The FPL calls made, in order. Each moves the clock on by a second."""
+
+    def __init__(self, clock):
+        super().__init__()
+        self.clock = clock
+
+    def record(self, key):
+        self.append(key)
+        self.clock.now += 1
+
+
 class Fpl:
     """FPL for the pass: standings per league, and each team's entry, transfers,
     picks and history. Teams start in gameweek 1, keep the same captain and score
-    40 + the gameweek's number unless a test says otherwise. Every call moves the
-    clock on by a second."""
+    40 + the gameweek's number unless a test says otherwise."""
 
     def __init__(self, clock):
-        self.clock = clock
         self.standings = {
             LEAGUE: make_fpl_league_standings(
                 results=[
@@ -147,11 +157,10 @@ class Fpl:
         self.picks = {}
         self.points = {}  # (manager_id, event) -> points
         self.errors = {}  # (kind, *args) -> exception
-        self.calls = []
+        self.calls = Calls(clock)
 
     def _call(self, key):
-        self.calls.append(key)
-        self.clock.now += 1
+        self.calls.record(key)
         if key in self.errors:
             raise self.errors[key]
 
@@ -555,7 +564,7 @@ def test_calls_are_paced(engine, fpl, clock):
     job.run_pass(engine)
     assert not clock.sleeps
 
-    fpl.clock = Clock()  # calls now take no time
+    fpl.calls.clock = Clock()  # calls now take no time
     with Session(engine) as session, session.begin():
         session.execute(update(TrackedTeam).values(last_event=2))
     job.run_pass(engine)

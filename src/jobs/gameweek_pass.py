@@ -139,6 +139,15 @@ def settle_points(engine: Engine, pacer: Pacer, manager_id: int) -> None:
         team_gameweeks.save_points(session, manager_id, history)
 
 
+def settle_all(engine: Engine, pacer: Pacer) -> None:
+    """Store the final points of every team that has some to store."""
+    with Session(engine) as session:
+        unsettled = team_gameweeks.teams_to_settle(session)
+    for manager_id in unsettled:
+        settle_points(engine, pacer, manager_id)
+    logger.info("Gameweek pass: points stored for %s team(s)", len(unsettled))
+
+
 def run_pass(
     engine: Optional[Engine] = None, minutes: float = GAMEWEEK_PASS_MINUTES
 ) -> bool:
@@ -177,11 +186,7 @@ def run_pass(
                 len(teams),
                 latest,
             )
-            with Session(engine) as session:
-                unsettled = team_gameweeks.teams_to_settle(session)
-            for manager_id in unsettled:
-                settle_points(engine, pacer, manager_id)
-            logger.info("Gameweek pass: points stored for %s team(s)", len(unsettled))
+            settle_all(engine, pacer)
     except TimeUp:
         logger.info("Gameweek pass stopped at its %s-minute limit", minutes)
     except SYNC_ERRORS as exc:
