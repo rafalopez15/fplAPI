@@ -389,6 +389,8 @@ class TeamGameweek(Base):
     captain: Mapped[Optional[int]]
     vice_captain: Mapped[Optional[int]]
     captain_changed: Mapped[Optional[bool]]
+    # Deferred until production has the column, so no query reads it before then.
+    points: Mapped[Optional[int]] = mapped_column(deferred=True)
 
 
 class Note(Base):
