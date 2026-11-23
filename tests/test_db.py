@@ -16,6 +16,7 @@ from src.db.models import (
     PlayerFixtureHistory,
     SyncRun,
     Team,
+    TeamGameweek,
 )
 from tests.conftest import alembic_config, make_element
 
@@ -203,3 +204,8 @@ def test_sync_run_defaults(db_session):
     assert run.id is not None
     assert run.started_at is not None
     assert run.finished_at is None
+
+
+def test_team_gameweek_queries_skip_points_until_production_has_them():
+    # The API can deploy before the migration adds the column.
+    assert "points" not in str(select(TeamGameweek))
