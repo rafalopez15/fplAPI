@@ -127,9 +127,10 @@ def transfer(element_in, element_out, event, minute=0):
 
 
 class Fpl:
-    """FPL for the pass: standings per league, and each team's entry, transfers and
-    picks. Teams start in gameweek 1 and keep the same captain unless a test says
-    otherwise. Every call moves the clock on by a second."""
+    """FPL for the pass: standings per league, and each team's entry, transfers,
+    picks and history. Teams start in gameweek 1, keep the same captain and score
+    40 + the gameweek's number unless a test says otherwise. Every call moves the
+    clock on by a second."""
 
     def __init__(self, clock):
         self.clock = clock
@@ -144,6 +145,7 @@ class Fpl:
         self.started = {}  # manager_id -> started_event
         self.transfers = {}
         self.picks = {}
+        self.points = {}  # (manager_id, event) -> points
         self.errors = {}  # (kind, *args) -> exception
         self.calls = []
 
@@ -174,6 +176,17 @@ class Fpl:
         self._call(("picks", manager_id, event))
         return self.picks.get((manager_id, event)) or picks(event)
 
+    def team_history(self, manager_id):
+        self._call(("history", manager_id))
+        return {
+            "current": [
+                {"event": e, "points": self.points.get((manager_id, e), 40 + e)}
+                for e in (1, 2, 3)
+            ],
+            "past": [],
+            "chips": [],
+        }
+
 
 @pytest.fixture
 def fpl(monkeypatch, clock):
@@ -182,6 +195,7 @@ def fpl(monkeypatch, clock):
     monkeypatch.setattr(job, "fetch_manager", fake.team)
     monkeypatch.setattr(job, "fetch_manager_transfers", fake.team_transfers)
     monkeypatch.setattr(job, "fetch_manager_picks", fake.team_picks)
+    monkeypatch.setattr(job, "fetch_manager_history", fake.team_history)
     return fake
 
 
@@ -193,6 +207,19 @@ def track(engine, league_id=LEAGUE, idle=timedelta(0)):
                 last_requested_at=datetime.now(timezone.utc) - idle,
             )
         )
+
+
+def check(engine, *events):
+    """Mark the gameweeks data_checked: their points are final."""
+    with Session(engine) as session, session.begin():
+        session.execute(
+            update(Event).where(Event.id.in_(events)).values(data_checked=True)
+        )
+
+
+def points(engine):
+    """{(manager_id, event): points} for every team_gameweeks row."""
+    return {key: row.points for key, row in stored(engine).items()}
 
 
 def stored(engine):
@@ -323,6 +350,96 @@ def test_a_gameweek_set_back_is_passed_again_against_the_one_before(engine, fpl)
 
     row = stored(engine)[(TEAM_B, 3)]
     assert (row.captain, row.captain_changed) == (110, True)
+
+
+# --- points ----------------------------------------------------------------------
+
+
+def test_final_points_are_stored_once(engine, fpl, caplog):
+    check(engine, 1, 2)
+    fpl.points[(TEAM_A, 2)] = 87
+    track(engine)
+
+    with caplog.at_level(logging.INFO):
+        assert job.run_pass(engine) is True
+
+    # Gameweek 3 isn't data_checked, so its live points aren't stored.
+    assert points(engine) == {
+        (TEAM_A, 1): 41,
+        (TEAM_A, 2): 87,
+        (TEAM_A, 3): None,
+        (TEAM_B, 1): 41,
+        (TEAM_B, 2): 42,
+        (TEAM_B, 3): None,
+    }
+    assert [c for c in fpl.calls if c[0] == "history"] == [
+        ("history", TEAM_B),
+        ("history", TEAM_A),
+    ]
+    assert "points stored for 2 team(s)" in caplog.text
+
+    fpl.calls.clear()
+    job.run_pass(engine)
+    assert not [c for c in fpl.calls if c[0] == "history"]
+
+
+def test_a_gameweek_checked_later_is_stored_on_a_later_run(engine, fpl):
+    check(engine, 1, 2)
+    track(engine)
+    job.run_pass(engine)
+
+    check(engine, 3)
+    fpl.calls.clear()
+    job.run_pass(engine)
+
+    assert points(engine)[(TEAM_A, 3)] == 43
+    assert [c for c in fpl.calls if c[0] == "history"] == [
+        ("history", TEAM_B),
+        ("history", TEAM_A),
+    ]
+
+
+def test_a_history_404_leaves_the_points_for_the_next_run(engine, fpl, caplog):
+    check(engine, 1)
+    fpl.errors[("history", TEAM_A)] = FplNotFoundError("history")
+    track(engine)
+
+    with caplog.at_level(logging.INFO):
+        assert job.run_pass(engine) is True
+
+    assert points(engine)[(TEAM_A, 1)] is None
+    assert points(engine)[(TEAM_B, 1)] == 41
+    assert f"Team {TEAM_A} no longer exists; its points weren't stored" in caplog.text
+
+    del fpl.errors[("history", TEAM_A)]
+    job.run_pass(engine)
+    assert points(engine)[(TEAM_A, 1)] == 41
+
+
+def test_points_arent_fetched_for_a_team_that_left_the_league(engine, fpl):
+    track(engine)
+    job.run_pass(engine)
+    fpl.standings[LEAGUE] = make_fpl_league_standings(
+        results=[make_fpl_standing(TEAM_B, "Solio Moose", 1)]
+    )
+    check(engine, 1)
+    fpl.calls.clear()
+
+    job.run_pass(engine)
+
+    assert [c for c in fpl.calls if c[0] == "history"] == [("history", TEAM_B)]
+
+
+def test_fpl_down_while_storing_points_keeps_the_teams_done(engine, fpl):
+    check(engine, 1)
+    fpl.errors[("history", TEAM_A)] = FplUnavailableError("503 Service Unavailable")
+    track(engine)
+
+    assert job.run_pass(engine) is False
+
+    assert points(engine)[(TEAM_B, 1)] == 41
+    assert points(engine)[(TEAM_A, 1)] is None
+    assert last_events(engine) == {TEAM_A: 3, TEAM_B: 3}
 
 
 # --- gameweeks a team doesn't have -----------------------------------------------

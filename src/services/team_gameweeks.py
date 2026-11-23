@@ -1,11 +1,12 @@
 """What teams did each gameweek, stored by the gameweek pass: one team_gameweeks row
-per team and gameweek, and teams_tracked.last_event to show how far it got."""
+per team and gameweek, teams_tracked.last_event to show how far it got, and each
+gameweek's points once they're final."""
 
 from typing import Optional
 from sqlalchemy import Row, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
-from src.db.models import LeagueTeam, TeamGameweek, TrackedTeam
+from src.db.models import Event, LeagueTeam, TeamGameweek, TrackedTeam
 
 
 def build(
@@ -81,3 +82,38 @@ def save(session: Session, manager_id: int, rows: list[dict], last_event: int) -
         .where(TrackedTeam.manager_id == manager_id)
         .values(last_event=last_event)
     )
+
+
+def teams_to_settle(session: Session) -> list[int]:
+    """Each tracked league's team with a data_checked gameweek whose points aren't
+    stored yet, by team id."""
+    return list(
+        session.scalars(
+            select(TeamGameweek.manager_id)
+            .distinct()
+            .join(Event, Event.id == TeamGameweek.event)
+            .where(
+                Event.data_checked,
+                TeamGameweek.points.is_(None),
+                TeamGameweek.manager_id.in_(select(LeagueTeam.manager_id)),
+            )
+            .order_by(TeamGameweek.manager_id)
+        )
+    )
+
+
+def save_points(session: Session, manager_id: int, history: dict) -> None:
+    """Store the team's points from FPL's entry/{id}/history/ for its stored
+    gameweeks that are data_checked. Doesn't commit."""
+    checked = select(Event.id).where(Event.data_checked)
+    for gameweek in history.get("current") or []:
+        session.execute(
+            update(TeamGameweek)
+            .where(
+                TeamGameweek.manager_id == manager_id,
+                TeamGameweek.event == gameweek["event"],
+                # Until then they're live and still change.
+                TeamGameweek.event.in_(checked),
+            )
+            .values(points=gameweek["points"])
+        )

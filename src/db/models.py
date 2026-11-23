@@ -376,7 +376,8 @@ class TeamGameweek(Base):
 
     One row for every gameweek the pass has handled, even when nothing happened.
     transfers is [{element_in, element_out}], with Wildcard and Free Hit churn
-    removed. captain_changed is null for the team's first stored gameweek.
+    removed. captain_changed is null for the team's first stored gameweek. points is
+    null until the gameweek is data_checked and the pass has stored them.
     """
 
     __tablename__ = "team_gameweeks"
@@ -389,6 +390,7 @@ class TeamGameweek(Base):
     captain: Mapped[Optional[int]]
     vice_captain: Mapped[Optional[int]]
     captain_changed: Mapped[Optional[bool]]
+    points: Mapped[Optional[int]]
 
 
 class Note(Base):
