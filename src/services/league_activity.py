@@ -194,6 +194,7 @@ def get_activity(
                 captain=gameweek.captain,
                 vice_captain=gameweek.vice_captain,
                 captain_changed=gameweek.captain_changed,
+                points=gameweek.points,
             )
             for manager_id, team, gameweek in rows
             if gameweek is not None

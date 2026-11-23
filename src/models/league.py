@@ -61,6 +61,8 @@ class TeamActivity(BaseModel):
     captain: Optional[int] = None
     vice_captain: Optional[int] = None
     captain_changed: Optional[bool] = None  # null for a team's first stored gameweek
+    # Before the hit, as FPL shows it. Null until the gameweek's points are final.
+    points: Optional[int] = None
 
 
 class LeagueActivityResponse(BaseModel):
