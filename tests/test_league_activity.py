@@ -203,6 +203,7 @@ def test_a_tracked_league_is_read_without_calling_fpl(api, fetch, seeded_session
         chip="wildcard",
         captain=3,
         captain_changed=True,
+        points=71,
     )
     gameweek(seeded_session, TEAM_B)
     before = seeded_session.scalar(select(TrackedLeague.last_requested_at))
@@ -225,6 +226,7 @@ def test_a_tracked_league_is_read_without_calling_fpl(api, fetch, seeded_session
                 "captain": 2,
                 "vice_captain": 1,
                 "captain_changed": False,
+                "points": None,
             },
             {
                 "entry": TEAM_A,
@@ -236,6 +238,7 @@ def test_a_tracked_league_is_read_without_calling_fpl(api, fetch, seeded_session
                 "captain": 3,
                 "vice_captain": 1,
                 "captain_changed": True,
+                "points": 71,
             },
         ],
     }
@@ -278,13 +281,13 @@ def test_an_empty_league_after_the_pass_is_not_pending(api, seeded_session):
 @pytest.mark.usefixtures("fetch")
 def test_an_earlier_gameweek(api, seeded_session):
     track(seeded_session, teams=[(TEAM_A, "Amos's Team", 9)])
-    gameweek(seeded_session, TEAM_A, event=8, captain=1)
-    gameweek(seeded_session, TEAM_A)
+    gameweek(seeded_session, TEAM_A, event=8, captain=1, points=48)
+    gameweek(seeded_session, TEAM_A, points=90)
 
     body = api.get(PATH, params={"event": 8}).json()
 
     assert (body["event"], body["pending"]) == (8, False)
-    assert [team["captain"] for team in body["teams"]] == [1]
+    assert [(t["captain"], t["points"]) for t in body["teams"]] == [(1, 48)]
 
 
 def test_real_names_never_leave_the_api(api, fetch, seeded_session):

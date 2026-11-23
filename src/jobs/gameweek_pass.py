@@ -6,7 +6,9 @@ GitHub Actions runs it hourly, after the bootstrap sync, as its own job.
 It stops tracking leagues nobody has asked about for 14 days, refreshes each tracked
 league's teams, then for every team behind the latest gameweek whose deadline has
 passed fetches its transfers once and its picks for each gameweek it's missing,
-backfilling a new team's season from the gameweek it started. Calls are paced at
+backfilling a new team's season from the gameweek it started. Last, for every team
+with a data_checked gameweek whose points aren't stored, it fetches its history once
+and stores the final points. Calls are paced at
 about 5 a second, and the pass stops at a time limit; teams_tracked.last_event lets
 the next run carry on. Each team commits on its own, so a migration waits seconds,
 not the whole pass. FPL being down or updating stops the pass until the next run.
@@ -29,6 +31,7 @@ from src.util.config import GAMEWEEK_PASS_MINUTES
 from src.util.fpl_client import (
     FplNotFoundError,
     fetch_manager,
+    fetch_manager_history,
     fetch_manager_picks,
     fetch_manager_transfers,
 )
@@ -123,6 +126,28 @@ def pass_team(engine: Engine, pacer: Pacer, team: tuple, latest: int, types: dic
                 team_gameweeks.save(session, manager_id, rows, done)
 
 
+def settle_points(engine: Engine, pacer: Pacer, manager_id: int) -> None:
+    """Store the team's final points for its data_checked gameweeks."""
+    pacer.wait()
+    try:
+        history = fetch_manager_history(manager_id)
+    except FplNotFoundError:
+        # Tried again each run until the league refresh drops the team.
+        logger.info("Team %s no longer exists; its points weren't stored", manager_id)
+        return
+    with Session(engine) as session, session.begin():
+        team_gameweeks.save_points(session, manager_id, history)
+
+
+def settle_all(engine: Engine, pacer: Pacer) -> None:
+    """Store the final points of every team that has some to store."""
+    with Session(engine) as session:
+        unsettled = team_gameweeks.teams_to_settle(session)
+    for manager_id in unsettled:
+        settle_points(engine, pacer, manager_id)
+    logger.info("Gameweek pass: points stored for %s team(s)", len(unsettled))
+
+
 def run_pass(
     engine: Optional[Engine] = None, minutes: float = GAMEWEEK_PASS_MINUTES
 ) -> bool:
@@ -161,6 +186,7 @@ def run_pass(
                 len(teams),
                 latest,
             )
+            settle_all(engine, pacer)
     except TimeUp:
         logger.info("Gameweek pass stopped at its %s-minute limit", minutes)
     except SYNC_ERRORS as exc:
