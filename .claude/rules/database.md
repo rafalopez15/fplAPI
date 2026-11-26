@@ -45,11 +45,14 @@ paths:
 
 Vercel can deploy `main` before `migrate.yml` migrates production, and if that run is lost the gap lasts until the next hourly sync. Code that needs schema production doesn't have yet fails there. So a schema change ships in steps, each safe with the code before and after it (why: FPL-125):
 
-1. **Expand:** a PR whose migration only adds (a table, a nullable column, an index). Merge it alone and wait until production's `alembic_version` has it. A new column on a table the code already reads goes in the model as `mapped_column(deferred=True)`: `select(Model)` would query it before it exists, and leaving it out of the model fails `test_migrations_match_models`. Example: `team_gameweeks.points` was added deferred, with a test that `select(TeamGameweek)` leaves it out.
+1. **Expand:** a PR whose migration only adds (a table, a nullable column, an index). Merge it alone and wait until its Migrate database run is green (or the next sync's, if that run was lost). A new column on a table the code already reads goes in the model as `mapped_column(deferred=True)`: `select(Model)` would query it before it exists, and leaving it out of the model fails `test_migrations_match_models`. Example: `team_gameweeks.points` was added deferred, with a test that `select(TeamGameweek)` leaves it out.
+   - Deferring covers ORM loads, not statements built from `model.__table__.columns`, which still name the column. The jobs can do that because they migrate before they run; API code can't until the column exists.
 2. **Use:** a later PR with the code that reads and writes it, which drops `deferred`. Example: league activity returning `points`.
-3. **Contract:** removing a column takes two PRs: one stops using it and defers it, a later one drops it from the model and the database. A rename is an expand, a use and a contract. Example (hypothetical): dropping `team_gameweeks.captain_changed` would first stop reading it and defer it, then drop it.
+3. **Contract:** removing a column takes two PRs: one stops using it and defers it, a later one drops it from the model and the database. If the column is `NOT NULL` without a default, the first PR's migration also drops `NOT NULL` or adds a default, or inserts that stop writing it fail. A rename is an expand, a use that copies the existing data and writes both columns while old code is deployed, then a contract. Example (hypothetical): dropping `team_gameweeks.captain_changed` would first stop reading it and defer it, then drop it.
 
 A new table can ship with the code that uses it when that code tolerates the table being missing, as the snapshots do (a failed save or load is logged, not raised). Say so in the PR.
+
+A PR with a migration answers the Schema question from `.github/pull_request_template.md` in its description, even when opened with `--body-file`.
 
 ## `/healthcheck`
 
